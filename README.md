@@ -3,6 +3,16 @@
 
 **Mission:** Democratizing high-order reasoning by maximizing **Information Gain per Watt** on a single RTX 5070 Ti or Mac M-Series machine.
 
+
+
+<p align="center">
+  <img
+    width="3168"
+    height="1344"
+    alt="Novamind Banner"
+    src="https://github.com/user-attachments/assets/f91830e2-8014-4162-9b6f-a731ddab5e45"
+  />
+</p>
 ---
 
 ## Abstract
