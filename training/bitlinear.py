@@ -1,13 +1,9 @@
 """
-NovaMind — 硬件感知 BitLinear
+Hardware-aware BitLinear module.
 
-CUDA_EXTREME:
-- 启用 1.58-bit ternary QAT
-- 用自定义 autograd + STE 近似量化
-
-MAC_DEBUG / CPU_FALLBACK:
-- 安全退化到标准 nn.Linear
-- 保留相同接口，避免 MPS/CPU 崩溃
+CUDA_EXTREME enables 1.58-bit ternary QAT with a custom STE path. On macOS and
+CPU the implementation safely falls back to standard nn.Linear while preserving
+the same interface.
 """
 
 from __future__ import annotations

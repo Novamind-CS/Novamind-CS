@@ -1,22 +1,20 @@
 """
-NovaMind — 推理脚本
+NovaMind inference script.
 
-支持:
-- 标准生成（贪心 / top-p / top-k）
-- CATTS 自适应推理（自动 System 1/2 切换）
-- 批量评测
-- LoRA checkpoint 加载
+Supports:
+- standard generation (greedy / top-p / top-k)
+- CATTS adaptive inference with internal System 1/2 routing
+- batch benchmarking
+- LoRA checkpoint loading
 
-用法:
-    # 交互式
+Examples:
+
     python inference.py --checkpoint ./checkpoints/checkpoint_step5000.pt \
                         --size 7b --interactive
 
-    # 单条推理
     python inference.py --checkpoint ./ckpt.pt --size 7b \
-                        --prompt "解释量子纠缠"
+                        --prompt "Explain quantum entanglement."
 
-    # 批量评测
     python inference.py --checkpoint ./ckpt.pt --size 7b \
                         --bench ./eval_prompts.jsonl
 """
@@ -72,7 +70,7 @@ def _sample_next_token(logits: torch.Tensor,
 
 
 def load_model(checkpoint_path: str, size: str, device: str = "auto"):
-    """加载模型（支持 LoRA checkpoint 或完整权重）"""
+    """Load either a LoRA checkpoint or a full model checkpoint."""
     from novamind.config import NovaMindConfig
     from novamind.model import NovaMind
     from novamind.training.lora import inject_lora
@@ -82,7 +80,7 @@ def load_model(checkpoint_path: str, size: str, device: str = "auto"):
     dtype = get_dtype()
 
     print(get_hardware_banner(device_obj))
-    print(f"[推理] 加载 NovaMind-{size.upper()} on {device_obj.type}...")
+    print(f"[Inference] Loading NovaMind-{size.upper()} on {device_obj.type}...")
 
     cfg = NovaMindConfig.from_size(size)
     model = NovaMind(cfg)
@@ -92,33 +90,33 @@ def load_model(checkpoint_path: str, size: str, device: str = "auto"):
 
         # LoRA checkpoint
         if "lora_state_dict" in ckpt:
-            print("[推理] 检测到 LoRA checkpoint，注入并加载适配器...")
+            print("[Inference] Detected a LoRA checkpoint, injecting adapters...")
             model = inject_lora(model, target_modules=cfg.lora_target_modules,
                                 rank=cfg.lora_rank, alpha=cfg.lora_alpha)
             missing, unexpected = model.load_state_dict(
                 ckpt["lora_state_dict"], strict=False
             )
-            print(f"[推理] LoRA 加载完成 (missing={len(missing)}, unexpected={len(unexpected)})")
+            print(f"[Inference] LoRA load complete (missing={len(missing)}, unexpected={len(unexpected)})")
 
-        # 完整权重
+
         elif "model_state_dict" in ckpt:
             model.load_state_dict(ckpt["model_state_dict"])
-            print("[推理] 完整权重加载完成")
+            print("[Inference] Full checkpoint loaded")
 
         else:
-            print("[推理] 警告：未知 checkpoint 格式，使用随机权重（仅用于测试）")
+            print("[Inference] Warning: unknown checkpoint format, using random weights for testing")
     else:
-        print("[推理] 没有 checkpoint，使用随机初始化权重（仅用于冒烟测试）")
+        print("[Inference] No checkpoint provided, using random initialization for smoke testing")
 
     model = model.to(device_obj)
     model = model.to(dtype)
     model.eval()
 
     n_params = model.num_parameters()
-    print(f"[推理] 模型参数: {n_params/1e9:.2f}B")
+    print(f"[Inference] Model parameters: {n_params/1e9:.2f}B")
     if torch.cuda.is_available():
         vram = torch.cuda.memory_allocated() / 1e9
-        print(f"[推理] 当前显存: {vram:.2f}GB")
+        print(f"[Inference] Current VRAM: {vram:.2f}GB")
 
     return model, cfg, device_obj.type
 
@@ -131,13 +129,13 @@ def load_tokenizer(tokenizer_path: str):
             tok.pad_token = tok.eos_token
         return tok
     except Exception as e:
-        print(f"[警告] tokenizer 加载失败: {e}")
-        print("[警告] 将使用字符级 fallback tokenizer（仅用于测试）")
+        print(f"[Warning] Failed to load tokenizer: {e}")
+        print("[Warning] Falling back to the character-level tokenizer for testing")
         return CharTokenizer()
 
 
 class CharTokenizer:
-    """字符级 fallback tokenizer，仅用于无 transformers 环境测试"""
+    """Character-level fallback tokenizer for environments without transformers."""
 
     def __init__(self):
         self.eos_token_id = 0
@@ -174,9 +172,10 @@ def generate(model, tokenizer, prompt: str,
              met_caution_window: int = 5,
              system2_callback=None) -> str:
     """
-    生成文本
-    
-    use_catts=True 时启用自适应算力调度（推理更快，难题更准）
+    Generate text.
+
+    When `use_catts=True`, adaptive compute scheduling is enabled so easy cases
+    can exit early and difficult cases can spend more reasoning budget.
     """
     model.eval()
 
@@ -186,7 +185,7 @@ def generate(model, tokenizer, prompt: str,
     if use_catts:
         from novamind.core.catts import AdaptiveNovaMindWrapper
         wrapper = AdaptiveNovaMindWrapper(model, model.config)
-        print("[CATTS] 启用自适应生成...")
+        print("[CATTS] Adaptive generation enabled...")
         t0 = time.time()
         catts_out = wrapper.generate(
             input_ids,
@@ -199,7 +198,7 @@ def generate(model, tokenizer, prompt: str,
         generated = catts_out["tokens"]
         elapsed = time.time() - t0
         stats = catts_out["catts_stats"]
-        print(f"[CATTS] 调度分布 fast={stats['fast']:.2f} "
+        print(f"[CATTS] Routing distribution fast={stats['fast']:.2f} "
               f"normal={stats['normal']:.2f} deep={stats['deep']:.2f}")
     else:
         t0 = time.time()
@@ -242,7 +241,7 @@ def generate(model, tokenizer, prompt: str,
             )
         elapsed = time.time() - t0
 
-    # 只解码新生成的 token
+
     new_ids = generated[0][input_ids.shape[1]:].tolist()
     if hasattr(tokenizer, "decode"):
         text = tokenizer.decode(new_ids, skip_special_tokens=True)
@@ -251,15 +250,15 @@ def generate(model, tokenizer, prompt: str,
 
     n_new = len(new_ids)
     tps = n_new / elapsed if elapsed > 0 else 0
-    print(f"[生成] {n_new} tokens in {elapsed:.2f}s ({tps:.1f} tok/s)")
+    print(f"[Generation] {n_new} tokens in {elapsed:.2f}s ({tps:.1f} tok/s)")
 
     return text
 
 
 def interactive_loop(model, tokenizer, device: str, args):
-    """交互式对话循环"""
+    """Interactive chat loop."""
     print("\n" + "="*60)
-    print("NovaMind 交互式推理  (输入 'quit' 退出, 'stats' 查看统计)")
+    print("NovaMind interactive inference  (type 'quit' to exit, 'stats' for counters)")
     print("="*60 + "\n")
 
     history = []
@@ -278,11 +277,11 @@ def interactive_loop(model, tokenizer, device: str, args):
             break
         if user_input.lower() == "stats":
             if total_time > 0:
-                print(f"\n统计: 总 token={total_tokens}, "
-                      f"平均速度={total_tokens/total_time:.1f} tok/s\n")
+                print(f"\nStats: total_tokens={total_tokens}, "
+                      f"avg_speed={total_tokens/total_time:.1f} tok/s\n")
             continue
 
-        # 简单对话格式
+
         prompt = f"Human: {user_input}\nAssistant:"
 
         t0 = time.time()
@@ -296,7 +295,7 @@ def interactive_loop(model, tokenizer, device: str, args):
         )
         elapsed = time.time() - t0
 
-        # 截断到第一个 Human: 之前（避免模型自问自答）
+
         if "Human:" in response:
             response = response[:response.index("Human:")].strip()
 
@@ -380,8 +379,8 @@ def run_code_mcts(model, tokenizer, prompt: str, device: str, args):
 
 
 def run_bench(model, tokenizer, bench_path: str, device: str, args):
-    """批量基准测试"""
-    print(f"\n[Bench] 加载 {bench_path}...")
+    """Run a batch benchmark."""
+    print(f"\n[Bench] Loading {bench_path}...")
     prompts = []
     with open(bench_path) as f:
         for line in f:
@@ -390,7 +389,7 @@ def run_bench(model, tokenizer, bench_path: str, device: str, args):
                 obj = json.loads(line) if line.startswith("{") else {"prompt": line}
                 prompts.append(obj)
 
-    print(f"[Bench] 共 {len(prompts)} 条 prompt\n")
+    print(f"[Bench] Loaded {len(prompts)} prompts\n")
     results = []
 
     for i, item in enumerate(prompts):
@@ -414,54 +413,54 @@ def run_bench(model, tokenizer, bench_path: str, device: str, args):
         results.append(result)
         print(f"[{i+1}/{len(prompts)}] {prompt[:40]}... → {response[:60]}...")
 
-    # 保存结果
+
     out_path = bench_path.replace(".jsonl", "_results.jsonl")
     with open(out_path, "w", encoding="utf-8") as f:
         for r in results:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
     avg_time = sum(r["time_s"] for r in results) / len(results)
-    print(f"\n[Bench] 完成。平均推理时间: {avg_time:.2f}s/prompt")
-    print(f"[Bench] 结果保存: {out_path}")
+    print(f"\n[Bench] Done. Average latency: {avg_time:.2f}s/prompt")
+    print(f"[Bench] Results saved to: {out_path}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="NovaMind 推理")
+    parser = argparse.ArgumentParser(description="NovaMind inference")
     parser.add_argument("--checkpoint", type=str, default="",
-                        help="checkpoint 文件路径（留空用随机权重测试）")
+                        help="Path to a checkpoint file (leave empty for random-weight smoke tests)")
     parser.add_argument("--size", choices=["3b", "7b", "14b"], default="7b")
     parser.add_argument("--tokenizer", type=str,
                         default="meta-llama/Llama-2-7b-hf")
     parser.add_argument("--device", type=str, default="auto")
 
-    # 生成参数
+
     parser.add_argument("--max_new_tokens", type=int, default=256)
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--top_p", type=float, default=0.9)
     parser.add_argument("--top_k", type=int, default=50)
     parser.add_argument("--catts", action="store_true",
-                        help="启用 CATTS 自适应算力调度")
+                        help="Enable CATTS adaptive compute routing")
     parser.add_argument("--use_met", action="store_true",
-                        help="启用 MET 熵门控，低熵时跳过 System 2")
+                        help="Enable MET entropy gating so low-entropy states skip System 2")
     parser.add_argument("--met_entropy_threshold", type=float, default=3.5)
     parser.add_argument("--met_caution_window", type=int, default=5)
 
-    # 运行模式
+
     parser.add_argument("--interactive", action="store_true")
     parser.add_argument("--prompt", type=str, default="")
     parser.add_argument("--bench", type=str, default="",
-                        help="批量评测的 JSONL 文件路径")
+                        help="Path to a JSONL file for batch benchmarking")
     parser.add_argument("--mcts_code", action="store_true",
-                        help="启用代码级 MCTS + Python 沙盒自验证")
+                        help="Enable code-level MCTS with Python sandbox self-verification")
     parser.add_argument("--tests", type=str, default="",
-                        help="代码 MCTS 测试用例文件，每行一个 Python 断言")
+                        help="Path to code-MCTS tests, one Python assertion per line")
     parser.add_argument("--sandbox_timeout", type=float, default=2.0)
     parser.add_argument("--mcts_options", type=int, default=3)
     parser.add_argument("--mcts_rollouts", type=int, default=24)
 
     args = parser.parse_args()
 
-    # 加载模型
+
     model, cfg, device = load_model(args.checkpoint, args.size, args.device)
     tokenizer = load_tokenizer(args.tokenizer)
 
@@ -496,12 +495,12 @@ def main():
         run_bench(model, tokenizer, args.bench, device, args)
 
     else:
-        # 默认：冒烟测试
-        print("\n[冒烟测试] 没有指定 prompt，运行默认测试...")
+
+        print("\n[Smoke Test] No prompt provided, running the default check...")
         test_prompts = [
             "The capital of France is",
             "def fibonacci(n):",
-            "量子计算的核心原理是",
+            "The core principle of quantum computing is",
         ]
         for p in test_prompts:
             print(f"\nPrompt: {p}")

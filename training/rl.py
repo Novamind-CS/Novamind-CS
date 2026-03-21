@@ -1,6 +1,4 @@
-"""
-NovaMind — 轻量 RL / reward-weighted objective
-"""
+"""Lightweight RL and reward-weighted objective helpers."""
 
 import torch
 import torch.nn.functional as F

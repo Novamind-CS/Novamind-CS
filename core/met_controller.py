@@ -1,5 +1,4 @@
 """
-NovaMind — Metacognitive Entropy Throttling.
 """
 
 from __future__ import annotations

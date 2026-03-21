@@ -1,5 +1,4 @@
 """
-NovaMind — Surgical Gradient Attribution.
 """
 
 from __future__ import annotations

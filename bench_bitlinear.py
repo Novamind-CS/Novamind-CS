@@ -1,7 +1,7 @@
 """
-最小 BitLinear demo / benchmark
+Minimal BitLinear demo / benchmark.
 
-运行:
+Run:
     python3 bench_bitlinear.py
 """
 

@@ -1,5 +1,4 @@
 """
-NovaMind — Incremental Symbol Flow Sentinel.
 
 The sentinel statically inspects partial Python code and identifies references
 to symbols that are accessed before being defined in the current snippet.

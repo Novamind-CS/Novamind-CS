@@ -1,11 +1,8 @@
 """
-NovaMind — 硬件感知 Unified Memory Offloading
+Hardware-aware unified memory offloading.
 
-CUDA_EXTREME:
-- 启用基础 ZeRO 风格梯度卸载 hook
-
-MAC_DEBUG / CPU_FALLBACK:
-- 提供完全无副作用的 no-op 实现
+CUDA_EXTREME enables a basic ZeRO-style gradient offload hook. MAC_DEBUG and
+CPU_FALLBACK use a strict no-op implementation with the same interface.
 """
 
 from __future__ import annotations
@@ -20,9 +17,7 @@ from novamind.core.device_manager import get_device, is_high_perf_mode
 
 class UnifiedMemoryOffloader:
     """
-    轻量层级流式搬运工具。
 
-    这个类保留原有测试接口，与是否高性能硬件无关。
     """
 
     def __init__(self, execution_device: str = "cuda", offload_device: str = "cpu"):

@@ -1,6 +1,4 @@
-"""
-NovaMind — 统一硬件分层与设备管理
-"""
+"""Unified hardware tier detection and device management."""
 
 from __future__ import annotations
 

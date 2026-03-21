@@ -1,8 +1,9 @@
 """
-NovaMind — 硬件感知 Mamba backbone
+Hardware-aware Mamba backbone.
 
-高性能设备上优先走官方 `mamba_ssm` 实现。
-在 macOS / CPU 上退化到纯 PyTorch fallback，但保持相同张量形状接口。
+On high-performance machines the code prefers the official `mamba_ssm`
+implementation. On macOS / CPU it falls back to a pure PyTorch backend while
+preserving the same tensor-shape interface.
 """
 
 from __future__ import annotations
@@ -25,8 +26,6 @@ except Exception:
 class VanillaPyTorchMambaFallback(nn.Module):
     """
     Debug fallback:
-    用 GRU + 线性投影模拟 Mamba 的形状与残差行为。
-    不追求速度，只追求在 Mac/CPU 上稳定调试。
     """
 
     def __init__(self, d_model: int):
@@ -57,7 +56,6 @@ class VanillaPyTorchMambaFallback(nn.Module):
 
 class OfficialMambaBackbone(nn.Module):
     """
-    包装官方 Mamba2，并在不支持的调用路径上回退到 MultiHeadSSM。
     """
 
     def __init__(self, d_model: int, d_state: int, d_conv: int, expand: int, num_heads: int):

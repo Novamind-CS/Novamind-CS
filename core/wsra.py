@@ -1,11 +1,11 @@
 """
-NovaMind — WSRA 原型推理栈
+WSRA prototype reasoning stack.
 
-把四个“超越 Transformer/MoE”的运行时机制整合为可落地模块：
-1. Physics-Grounded Logic Engine
-2. Just-In-Time Compiled Circuits
-3. Dynamic Frustum Culling Memory
-4. Adversarial Logic Proof Trees
+Combines four runtime mechanisms into an integrated reasoning chain:
+1. Physics-grounded logic engine
+2. Just-in-time compiled circuits
+3. Dynamic frustum-culling memory
+4. Adversarial logic proof trees
 """
 
 from dataclasses import dataclass
@@ -17,7 +17,6 @@ import torch.nn.functional as F
 
 
 class PhysicsGroundedLogicEngine(nn.Module):
-    """在潜空间中维护一个简化的“世界状态”，并对穿透/失稳施加惩罚。"""
 
     def __init__(self, d_model: int, num_slots: int = 8):
         super().__init__()
@@ -63,7 +62,6 @@ class PhysicsGroundedLogicEngine(nn.Module):
 
 
 class JITCompiledCircuit(nn.Module):
-    """根据当前任务签名即时生成一个低秩临时电路。"""
 
     def __init__(self, d_model: int, rank: int = 32, compile_threshold: float = 0.55):
         super().__init__()
@@ -108,7 +106,6 @@ class JITCompiledCircuit(nn.Module):
 
 
 class DynamicFrustumMemory(nn.Module):
-    """只保留“视野内”高显著 token 在活跃区，其余压缩进冷存储摘要。"""
 
     def __init__(self, d_model: int, active_tokens: int = 256):
         super().__init__()
@@ -163,7 +160,6 @@ class DynamicFrustumMemory(nn.Module):
 
 
 class AdversarialLogicProofTree(nn.Module):
-    """左脑生成候选推理，右脑作为 verifier/attacker 做对抗验证。"""
 
     def __init__(self, d_model: int, num_branches: int = 4):
         super().__init__()
@@ -206,7 +202,6 @@ class AdversarialLogicProofTree(nn.Module):
 
 
 class WSRAReasoningStack(nn.Module):
-    """把四个 WSRA 运行时机制串成一条推理增强链。"""
 
     def __init__(self, d_model: int, world_slots: int = 8, jit_rank: int = 32,
                  frustum_tokens: int = 256, proof_branches: int = 4,

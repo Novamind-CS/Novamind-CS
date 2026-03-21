@@ -1,6 +1,4 @@
-"""
-NovaMind — 非对称 mixed-precision + 1.58-bit QAT 工具
-"""
+"""Asymmetric mixed-precision and 1.58-bit QAT helpers."""
 
 from typing import Dict, Iterable, Optional
 
@@ -18,7 +16,6 @@ DEFAULT_TARGET_KEYWORDS = (
 
 class QuantizedLinearQAT(nn.Module):
     """
-    训练时使用 ternary 权重前向，梯度仍回传到高精度 master weight。
     """
 
     def __init__(self, original: nn.Linear,

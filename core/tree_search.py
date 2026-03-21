@@ -1,7 +1,8 @@
 """
-NovaMind — 测试时树状搜索
+Test-time tree search.
 
-用于 CATTS 的 deep 模式，把“多次抖动平均”替换成真正的路径搜索。
+Used by CATTS deep mode to replace repeated noisy averaging with explicit path
+search.
 """
 
 from __future__ import annotations

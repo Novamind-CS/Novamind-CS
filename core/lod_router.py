@@ -1,5 +1,4 @@
 """
-NovaMind — Level-of-Detail compute routing
 
 Thread-safe global precision routing based on `contextvars`.
 """

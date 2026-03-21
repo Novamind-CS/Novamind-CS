@@ -1,18 +1,18 @@
 """
-NovaMind — 训练脚本
+NovaMind training script.
 
-支持:
-- 16GB 显存全量 LoRA 微调
-- WSC 持续学习
-- 激活卸载
-- 混合精度 (bfloat16)
+Supports:
+- LoRA fine-tuning within a 16 GB VRAM budget
+- WSC continual learning
+- activation offloading
+- mixed precision
 - gradient checkpointing
-- 简单的检查点保存/恢复
+- simple checkpoint save / resume flows
 
-用法:
+Usage:
     python train.py --size 7b --data /path/to/data --output ./checkpoints
 
-依赖:
+Dependencies:
     pip install torch einops transformers datasets
 """
 
@@ -85,15 +85,15 @@ def build_training_config(config_cls, size: str):
     )
 
 
-# ─────────────────────────────────────────────
-# 简单数据集（用于快速测试）
-# ─────────────────────────────────────────────
+
+
+
 
 class TextDataset(Dataset):
     """
-    支持两种输入:
-    1. 纯文本文件（每行一个样本）
-    2. JSON Lines 文件（每行 {"text": "..."} 格式）
+    Supports two input formats:
+    1. plain text files with one sample per line
+    2. JSON Lines files with records such as {"text": "..."}
     """
 
     def __init__(self, data_path: str, tokenizer, max_length: int = 2048):
@@ -102,7 +102,7 @@ class TextDataset(Dataset):
         self.samples = []
 
         path = Path(data_path)
-        assert path.exists(), f"数据文件不存在: {data_path}"
+        assert path.exists(), f"Data file does not exist: {data_path}"
 
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -120,7 +120,7 @@ class TextDataset(Dataset):
                 elif text:
                     self.samples.append(text)
 
-        print(f"[Dataset] 加载 {len(self.samples)} 条样本 from {data_path}")
+        print(f"[Dataset] Loaded {len(self.samples)} samples from {data_path}")
 
     def __len__(self):
         return len(self.samples)
@@ -171,7 +171,7 @@ class SyntheticCurriculumDataset(Dataset):
         self.samples = get_level_1_dataset()
         self.tokenizer = tokenizer
         self.max_length = max_length
-        print(f"[Synthetic] 加载 {len(self.samples)} 条 Level-1 reasoning 课程样本")
+        print(f"[Synthetic] Loaded {len(self.samples)} Level-1 reasoning curriculum samples")
 
     def __len__(self):
         return len(self.samples)
@@ -204,9 +204,9 @@ class SyntheticCurriculumDataset(Dataset):
         }
 
 
-# ─────────────────────────────────────────────
-# 训练器
-# ─────────────────────────────────────────────
+
+
+
 
 class NovaMindTrainer:
 
@@ -236,7 +236,7 @@ class NovaMindTrainer:
         self.step = 0
         self.best_loss = float("inf")
 
-        # 学习率调度（余弦退火 + 热身）
+
         self.scheduler = self._build_scheduler()
 
     def _build_scheduler(self):
@@ -703,7 +703,7 @@ class NovaMindTrainer:
         return reward_tensor
 
     def train_step(self, batch: dict) -> float:
-        """单步训练，返回 loss 值"""
+        """Run one training step and return the loss value."""
         input_ids = batch["input_ids"].to(self.args.device)
         labels = batch["labels"].to(self.args.device)
         rewards = batch.get("reward")
@@ -716,7 +716,7 @@ class NovaMindTrainer:
 
         self.model.train()
 
-        # 混合精度前向
+
         from novamind.core.device_manager import get_autocast_context
 
         if self.zero_memory_manager is not None and self.args.use_unified_offload:
@@ -753,12 +753,12 @@ class NovaMindTrainer:
             if self.last_met_penalty > 0:
                 loss = loss + self.last_met_penalty
 
-        # 梯度累积
+
         loss = loss / self.args.grad_accum_steps
         loss.backward()
 
         if (self.step + 1) % self.args.grad_accum_steps == 0:
-            # 梯度裁剪
+
             if hasattr(self.optimizer, "base_optimizer"):
                 torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(), self.args.max_grad_norm
@@ -768,7 +768,7 @@ class NovaMindTrainer:
                     self.model.parameters(), self.args.max_grad_norm
                 )
 
-            # 优化器步骤（WSC 或标准）
+
             if hasattr(self.optimizer, "step"):
                 self.optimizer.step()
             if self.zero_memory_manager is not None and self.args.use_unified_offload:
@@ -797,17 +797,17 @@ class NovaMindTrainer:
             payload["lora_state_dict"] = lora_state
 
         torch.save(payload, os.path.join(path, f"checkpoint_step{self.step}.pt"))
-        print(f"[Trainer] 保存检查点: step={self.step}, loss={loss:.4f}")
+        print(f"[Trainer] Saved checkpoint: step={self.step}, loss={loss:.4f}")
 
     def train(self, dataloader: DataLoader | None):
-        """完整训练循环"""
+        """Run the full training loop."""
         print(f"\n{'='*60}")
-        print(f"NovaMind 开始训练")
-        print(f"  设备: {self.args.device}")
-        print(f"  最大步数: {self.args.max_steps}")
-        print(f"  批大小: {self.args.batch_size} × 梯度累积: {self.args.grad_accum_steps}")
-        print(f"  有效批大小: {self.args.batch_size * self.args.grad_accum_steps}")
-        print(f"  模型参数: {self.model.num_parameters()/1e9:.2f}B total, "
+        print("NovaMind training started")
+        print(f"  Device: {self.args.device}")
+        print(f"  Max steps: {self.args.max_steps}")
+        print(f"  Batch size: {self.args.batch_size} × grad accumulation: {self.args.grad_accum_steps}")
+        print(f"  Effective batch size: {self.args.batch_size * self.args.grad_accum_steps}")
+        print(f"  Model size: {self.model.num_parameters()/1e9:.2f}B total, "
               f"{self.model.num_parameters(trainable_only=True)/1e6:.1f}M trainable")
         print(f"{'='*60}\n")
 
@@ -827,9 +827,9 @@ class NovaMindTrainer:
                     self._run_curriculum_step(sample, epoch)
                     self.step += 1
                     if self.step >= self.args.max_steps:
-                        print(f"\n[训练] Synthetic sanity phase 完成，共 {self.step} 步")
+                        print(f"\n[Training] Synthetic sanity phase complete after {self.step} steps")
                         return
-            print(f"\n[训练] Synthetic sanity phase 完成，共 {self.step} 步")
+            print(f"\n[Training] Synthetic sanity phase complete after {self.step} steps")
             return
 
         loss_window = []
@@ -844,13 +844,13 @@ class NovaMindTrainer:
                 if len(loss_window) > 100:
                     loss_window.pop(0)
 
-                # 日志
+
                 if self.step % self.args.log_interval == 0:
                     elapsed = time.time() - t0
                     avg_loss = sum(loss_window) / len(loss_window)
                     steps_per_sec = self.step / elapsed
 
-                    # 显存使用
+
                     vram_gb = torch.cuda.memory_allocated() / 1e9 if torch.cuda.is_available() else 0
 
                     print(f"Step {self.step:6d} | "
@@ -862,37 +862,37 @@ class NovaMindTrainer:
                           f"{'' if self.last_met_entropy is None else f' | MET-H: {self.last_met_entropy:.2f}'}"
                           f"{'' if self.last_met_penalty <= 0 else f' | DK: {self.last_met_penalty:.2f}'}")
 
-                # 保存检查点
+
                 if (self.step % self.args.save_interval == 0
                         and loss_val < self.best_loss):
                     self.best_loss = loss_val
                     self.save_checkpoint(self.args.output, loss_val)
 
-                # 达到最大步数
+
                 if self.step >= self.args.max_steps:
-                    print(f"\n训练完成，共 {self.step} 步")
+                    print(f"\nTraining complete after {self.step} steps")
                     self.save_checkpoint(self.args.output, loss_val)
                     return
 
 
-# ─────────────────────────────────────────────
-# 主函数
-# ─────────────────────────────────────────────
+
+
+
 
 def main():
-    parser = argparse.ArgumentParser(description="NovaMind 训练脚本")
+    parser = argparse.ArgumentParser(description="NovaMind training")
     parser.add_argument("--size", choices=["tiny", "3b", "7b", "14b"], default="tiny")
-    parser.add_argument("--data", type=str, default="", help="训练数据路径")
+    parser.add_argument("--data", type=str, default="", help="Path to the training data")
     parser.add_argument("--output", type=str, default="./checkpoints")
     parser.add_argument("--tokenizer", type=str, default="",
-                        help="HuggingFace tokenizer 路径")
+                        help="Path or identifier for the HuggingFace tokenizer")
     parser.add_argument("--synthetic_curriculum", action="store_true", default=False)
     parser.add_argument("--vault_stress_test", action="store_true", default=False)
     parser.add_argument("--vault_tasks", type=int, default=50)
     parser.add_argument("--vault_candidate_paths", type=int, default=52)
     parser.add_argument("--vault_min_paths", type=int, default=50)
 
-    # 训练参数
+
     parser.add_argument("--max_steps", type=int, default=12)
     parser.add_argument("--max_epochs", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=1)
@@ -905,7 +905,7 @@ def main():
     parser.add_argument("--max_seq_len", type=int, default=2048)
     parser.add_argument("--width_multiplier", type=float, default=1.0)
 
-    # 显存优化
+
     parser.add_argument("--bf16", action="store_true", default=True)
     parser.add_argument("--fp16", action="store_true", default=False)
     parser.add_argument("--no_activation_checkpointing", action="store_true")
@@ -941,7 +941,7 @@ def main():
 
     args = parser.parse_args()
 
-    # ── 导入（放这里避免循环导入）
+
     from novamind.config import NovaMindConfig
     from novamind.model import NovaMind
     from novamind.training.lora import inject_lora, freeze_base_model, estimate_vram
@@ -962,21 +962,21 @@ def main():
 
     if not args.data and not args.synthetic_curriculum and not args.vault_stress_test:
         args.synthetic_curriculum = True
-        print("[训练] 未提供 --data，自动切换到 synthetic sanity curriculum")
+        print("[Training] No --data provided, switching to the synthetic sanity curriculum")
 
     if (args.synthetic_curriculum or args.vault_stress_test) and detected_tier == HardwareTier.MAC_DEBUG:
         args.device = torch.device("cpu")
         runtime_dtype = torch.float32
-        print("[训练] MAC_DEBUG reasoning mode 强制使用 CPU，规避 MPS 内核崩溃")
+        print("[Training] MAC_DEBUG reasoning mode forces CPU execution to avoid MPS kernel crashes")
 
     if (args.synthetic_curriculum or args.vault_stress_test) and detected_tier == HardwareTier.MAC_DEBUG:
         print(f"[Hardware] tier=MAC_DEBUG device=cpu dtype={runtime_dtype}")
     else:
         print(get_hardware_banner(args.device))
 
-    # ── 构建模型配置
+
     if (args.synthetic_curriculum or args.vault_stress_test) and not is_high_perf_mode() and args.size != "tiny":
-        print("[训练] 非 CUDA 推理训练环境自动降级到 tiny 配置")
+        print("[Training] Non-CUDA reasoning environments automatically fall back to the tiny config")
         args.size = "tiny"
 
     cfg = build_training_config(NovaMindConfig, args.size)
@@ -990,7 +990,7 @@ def main():
     cfg.lora_alpha = args.lora_alpha
     cfg.wsc_reset_freq = args.wsc_reset_freq
 
-    # ── 估算显存
+
     num_params = {
         "tiny": 2_000_000,
         "3b": 3_000_000_000,
@@ -1003,14 +1003,14 @@ def main():
         num_layers=cfg.num_layers,
         use_activation_checkpointing=cfg.use_activation_checkpointing
     )
-    print(f"\n[显存估算] {args.size.upper()} 模型:")
+    print(f"\n[VRAM Estimate] {args.size.upper()} model:")
     for k, v in vram_est.items():
         flag = "✓" if k == "fits_16gb" else "  "
         print(f"  {flag} {k}: {v}")
     print()
 
-    # ── 构建模型
-    print(f"[模型] 初始化 NovaMind-{args.size.upper()}...")
+
+    print(f"[Model] Initializing NovaMind-{args.size.upper()}...")
     model = NovaMind(cfg)
 
     if args.use_qat:
@@ -1020,14 +1020,14 @@ def main():
         preserve_sensitive_precision(model)
         if is_high_perf_mode():
             model, replaced = replace_with_bitlinear(model)
-            print(f"[QAT] 已替换 {replaced} 个线性层为 BitLinear 1.58-bit QAT 模块")
+            print(f"[QAT] Replaced {replaced} linear layers with BitLinear 1.58-bit QAT modules")
         else:
             print("[QAT] Non-CUDA tier detected, skipping BitLinear replacement.")
         qat_est = estimate_qat_vram(num_params=num_params)
-        print(f"[QAT] 训练显存估算: {qat_est}")
+        print(f"[QAT] Training VRAM estimate: {qat_est}")
 
     if not args.use_qat:
-        # 注入 LoRA
+
         model = inject_lora(
             model,
             target_modules=cfg.lora_target_modules,
@@ -1036,10 +1036,10 @@ def main():
         )
         model = freeze_base_model(model)
 
-    # 激活 checkpointing
+
     if cfg.use_activation_checkpointing:
         from torch.utils.checkpoint import checkpoint_sequential
-        print("[显存] 激活 gradient checkpointing")
+        print("[VRAM] Gradient checkpointing enabled")
 
     model = model.to(args.device)
     model = model.to(runtime_dtype)
@@ -1052,14 +1052,14 @@ def main():
         teacher_ckpt = torch.load(args.teacher_checkpoint, map_location="cpu", weights_only=False)
         state = teacher_ckpt.get("model_state_dict") or teacher_ckpt.get("ema_model") or teacher_ckpt
         missing, unexpected = teacher_model.load_state_dict(state, strict=False)
-        print(f"[KD] Teacher 加载完成 missing={len(missing)} unexpected={len(unexpected)}")
+        print(f"[KD] Teacher loaded (missing={len(missing)}, unexpected={len(unexpected)})")
         teacher_model = teacher_model.to(args.device)
         teacher_model = teacher_model.to(runtime_dtype)
         teacher_model.eval()
         for p in teacher_model.parameters():
             p.requires_grad_(False)
 
-    # ── 优化器
+
     if args.use_qat:
         trainable_params = [p for p in model.parameters() if p.requires_grad]
     else:
@@ -1076,7 +1076,7 @@ def main():
             reset_freq=args.wsc_reset_freq,
             ema_decay=cfg.wsc_ema_decay
         )
-        print("[WSC] 持续学习优化器已激活")
+        print("[WSC] Continual-learning optimizer enabled")
     else:
         optimizer = base_opt
 
@@ -1085,7 +1085,7 @@ def main():
         zero_memory_manager.register_offload_hooks(model, base_opt)
         print("[ZeRO] Unified offload hooks registered")
 
-    # ── 数据集
+
     try:
         if args.tokenizer:
             from transformers import AutoTokenizer
@@ -1095,7 +1095,7 @@ def main():
         else:
             raise RuntimeError("No tokenizer configured")
     except Exception:
-        print("[训练] 使用字符级 tokenizer 进行本地 sanity check")
+        print("[Training] Using the character-level tokenizer for a local sanity check")
         from inference import CharTokenizer
         tokenizer = CharTokenizer()
 
@@ -1106,7 +1106,7 @@ def main():
     elif tokenizer is not None and args.data:
         dataset = TextDataset(args.data, tokenizer, max_length=args.max_seq_len)
     else:
-        print("[错误] 未提供 --data，且未启用 --synthetic_curriculum")
+        print("[Error] No --data path provided and --synthetic_curriculum is disabled")
         sys.exit(1)
 
     dataloader = None
@@ -1119,7 +1119,7 @@ def main():
             pin_memory=torch.cuda.is_available()
         )
 
-    # ── 开始训练
+
     trainer = NovaMindTrainer(
         model, optimizer, cfg, args, tokenizer,
         teacher_model=teacher_model,

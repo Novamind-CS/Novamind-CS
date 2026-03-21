@@ -1,5 +1,4 @@
 """
-NovaMind — AST-aware rollback backpropagation utilities.
 
 This module provides three core building blocks:
 1. `execute_and_trace`: execute generated code and intercept the exact failing line.

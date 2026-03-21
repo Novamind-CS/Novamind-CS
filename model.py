@@ -1,19 +1,8 @@
 """
-NovaMind — 完整模型
+Full NovaMind language model assembly.
 
-把所有模块组装成完整的语言模型:
-    Embedding
-    → N × HybridBlock (SSM + xLSTM + 因果注意力)
-    → 逻辑约束层 (可选)
-    → LM Head
-
-HybridBlock 内部结构:
-    Input
-    → RMSNorm → MultiHeadSSM (全局压缩)
-    → RMSNorm → xLSTMBlock (高秩记忆召回)
-    → RMSNorm → CausalModulatedAttention (因果调制局部注意)
-    → RMSNorm → FFN (特征变换)
-    → TITANS 记忆 (每 titans_memory_layers 层插入一个)
+Combines embeddings, hybrid reasoning blocks, optional logic constraints, and
+the final language-model head into a single end-to-end architecture.
 """
 
 import torch
@@ -41,12 +30,11 @@ class RMSNorm(nn.Module):
 
 
 class FeedForward(nn.Module):
-    """SwiGLU FFN（Llama 风格，参数效率高）"""
 
     def __init__(self, d_model: int, expand: int = 4):
         super().__init__()
-        d_hidden = int(d_model * expand * 2 / 3)  # SwiGLU 标准比例
-        d_hidden = ((d_hidden + 63) // 64) * 64   # 对齐到 64 的倍数，GPU 效率
+        d_hidden = int(d_model * expand * 2 / 3)
+        d_hidden = ((d_hidden + 63) // 64) * 64
 
         self.gate_proj = nn.Linear(d_model, d_hidden, bias=False)
         self.up_proj = nn.Linear(d_model, d_hidden, bias=False)
@@ -58,12 +46,7 @@ class FeedForward(nn.Module):
 
 class HybridBlock(nn.Module):
     """
-    核心混合计算块
     
-    三路并行处理，然后门控融合:
-    - SSM: 全局上下文压缩 (O(1) 内存)
-    - xLSTM: 矩阵记忆精确召回
-    - 因果注意力: 高价值局部依赖
     """
 
     def __init__(self, config: NovaMindConfig, layer_idx: int):
@@ -77,7 +60,7 @@ class HybridBlock(nn.Module):
         self.norm_attn = RMSNorm(d, config.norm_eps)
         self.norm_ffn = RMSNorm(d, config.norm_eps)
 
-        # 三路处理器
+
         self.ssm = build_mamba_backbone(
             d_model=d,
             d_state=config.ssm_state_dim,
@@ -104,7 +87,7 @@ class HybridBlock(nn.Module):
         # FFN
         self.ffn = FeedForward(d)
 
-        # 门控融合：三路输出的动态权重（不同层可以学到不同的混合策略）
+
         self.num_branches = 3 if self.attn is not None else 2
         self.fusion_gate = nn.Linear(d, self.num_branches, bias=True)
         nn.init.constant_(self.fusion_gate.bias, 1 / self.num_branches)
@@ -112,7 +95,7 @@ class HybridBlock(nn.Module):
         # Dropout
         self.dropout = nn.Dropout(config.dropout)
 
-        # 是否在此层使用因果调制（训练时可以按需关闭节省计算）
+
         self.use_causal_modulation = config.use_causal_modulation
 
     def forward(self, x: torch.Tensor,
@@ -121,14 +104,13 @@ class HybridBlock(nn.Module):
                 inference_mode: bool = False) -> Tuple[torch.Tensor, dict]:
         """
         x: (B, L, d_model)
-        返回: (output, block_state)
         """
         if state is None:
             state = {}
         if xlstm_state is not None and "xlstm" not in state:
             state["xlstm"] = xlstm_state
 
-        # ① SSM 路
+
         ssm_out, new_ssm_state = self.ssm(
             self.norm_ssm(x),
             inference_mode=inference_mode,
@@ -136,12 +118,12 @@ class HybridBlock(nn.Module):
             return_states=True,
         )
 
-        # ② xLSTM 路（带矩阵记忆）
+
         xlstm_out, new_xlstm_state = self.xlstm(
             self.norm_xlstm(x), state=state.get("xlstm")
         )
 
-        # ③ 因果注意力路
+
         attn_out = None
         new_attn_state = state.get("attn")
         if self.attn is not None:
@@ -154,7 +136,7 @@ class HybridBlock(nn.Module):
                 [state["attn"], x.detach()], dim=1
             )[:, -self.attn.attention_window:]
 
-        # ④ 门控融合
+
         gates = F.softmax(self.fusion_gate(x.mean(dim=1, keepdim=True)), dim=-1)
         branch_outputs = [ssm_out, xlstm_out]
         if attn_out is not None:
@@ -166,7 +148,7 @@ class HybridBlock(nn.Module):
 
         x = x + self.dropout(fused)
 
-        # ⑤ FFN
+
         x = x + self.dropout(self.ffn(self.norm_ffn(x)))
 
         return x, {
@@ -178,13 +160,7 @@ class HybridBlock(nn.Module):
 
 class NovaMind(nn.Module):
     """
-    NovaMind 完整语言模型
     
-    特性:
-    - 混合 SSM + xLSTM + 因果注意力
-    - 每 titans_memory_layers 层插入一个 TITANS 记忆模块
-    - 可选逻辑约束层
-    - 支持增量推理（传入 kv cache 替代品 = SSM hidden state + TITANS fifo）
     """
 
     def __init__(self, config: NovaMindConfig):
@@ -195,12 +171,12 @@ class NovaMind(nn.Module):
         self.embed = nn.Embedding(config.vocab_size, config.hidden_dim)
         nn.init.normal_(self.embed.weight, std=0.02)
 
-        # 主干层
+
         self.layers = nn.ModuleList([
             HybridBlock(config, i) for i in range(config.num_layers)
         ])
 
-        # TITANS 记忆模块（每 N 层一个）
+
         self.titans_modules = nn.ModuleDict()
         for i in range(0, config.num_layers, config.titans_memory_layers):
             self.titans_modules[str(i)] = TITANSMemoryModule(
@@ -212,7 +188,7 @@ class NovaMind(nn.Module):
                 summary_temperature=config.titans_summary_temperature,
             )
 
-        # 可选逻辑约束层
+
         self.logic_layer = None
         if config.use_logic_layer:
             self.logic_layer = LogicConstraintLayer(
@@ -231,11 +207,11 @@ class NovaMind(nn.Module):
                 compile_threshold=config.wsra_compile_threshold,
             )
 
-        # 输出
+
         self.final_norm = RMSNorm(config.hidden_dim, config.norm_eps)
         self.lm_head = nn.Linear(config.hidden_dim, config.vocab_size, bias=False)
 
-        # 权重绑定（节省参数）
+
         if config.tie_embeddings:
             self.lm_head.weight = self.embed.weight
 
@@ -260,19 +236,13 @@ class NovaMind(nn.Module):
                 return_logic_loss: bool = False):
         """
         input_ids: (B, L)
-        labels:    (B, L) — 用于计算语言模型损失（next token prediction）
         
-        返回: dict with keys:
             - logits: (B, L, vocab_size)
-            - loss: 语言模型损失（如果提供 labels）
-            - logic_loss: 逻辑约束损失（如果 return_logic_loss=True）
-            - xlstm_states: 更新后的 xLSTM 状态（推理用）
-            - titans_fifos: 更新后的 TITANS FIFO 缓冲（推理用）
         """
         B, L = input_ids.shape
         device = input_ids.device
 
-        # 初始化状态
+
         if layer_states is None:
             if xlstm_states is not None:
                 layer_states = [
@@ -292,16 +262,16 @@ class NovaMind(nn.Module):
         logic_satisfactions = []
         wsra_outputs = None
 
-        # 逐层处理
+
         for i, layer in enumerate(self.layers):
-            # TITANS 记忆（在每 N 层前执行）
+
             if str(i) in self.titans_modules:
                 fifo_key = str(i)
                 fifo_buf = titans_fifos.get(fifo_key, None)
                 x, new_fifo = self.titans_modules[fifo_key](x, fifo_buf)
                 new_titans_fifos[fifo_key] = new_fifo
 
-            # 混合计算块
+
             x, new_state = layer(
                 x,
                 state=layer_states[i],
@@ -315,7 +285,7 @@ class NovaMind(nn.Module):
             if return_logic_loss:
                 logic_loss = wsra_outputs["loss"].mean()
 
-        # 逻辑约束层
+
         if self.logic_layer is not None:
             x, satisfaction = self.logic_layer(x)
             logic_satisfactions.append(satisfaction)
@@ -323,15 +293,15 @@ class NovaMind(nn.Module):
                 layer_logic_loss = (1 - satisfaction).mean()
                 logic_loss = layer_logic_loss if logic_loss is None else logic_loss + layer_logic_loss
 
-        # 输出
+
         x = self.final_norm(x)
         hidden_states = x
         logits = self.lm_head(x)  # (B, L, vocab_size)
 
-        # 语言模型损失
+
         loss = None
         if labels is not None:
-            # next token prediction: 移位对齐
+
             shift_logits = logits[:, :-1].contiguous()
             shift_labels = labels[:, 1:].contiguous()
             loss = F.cross_entropy(
@@ -340,7 +310,7 @@ class NovaMind(nn.Module):
                 ignore_index=-100
             )
             if logic_loss is not None:
-                loss = loss + 0.01 * logic_loss  # 逻辑约束作为辅助损失
+                loss = loss + 0.01 * logic_loss
 
         return {
             "logits": logits,
@@ -361,8 +331,6 @@ class NovaMind(nn.Module):
                  top_p: float = 0.9,
                  top_k: int = 50) -> torch.Tensor:
         """
-        自回归生成
-        推理时使用 SSM 递归模式（O(1) 内存，每步恒定）
         """
         self.eval()
         B = input_ids.shape[0]
@@ -372,7 +340,7 @@ class NovaMind(nn.Module):
         titans_fifos = {}
         wsra_state = None
 
-        # 先处理 prompt
+
         out = self.forward(
             input_ids,
             layer_states=layer_states,
@@ -388,18 +356,18 @@ class NovaMind(nn.Module):
         generated = [input_ids]
 
         for _ in range(max_new_tokens):
-            # 采样
+
             if temperature != 1.0:
                 next_token_logits = next_token_logits / temperature
 
-            # Top-K 过滤
+
             if top_k > 0:
                 top_k_vals = torch.topk(next_token_logits, top_k)[0]
                 next_token_logits = next_token_logits.masked_fill(
                     next_token_logits < top_k_vals[:, -1:], float("-inf")
                 )
 
-            # Top-P 过滤
+
             if top_p < 1.0:
                 sorted_logits, sorted_idx = torch.sort(next_token_logits, descending=True)
                 cumprobs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
@@ -411,7 +379,7 @@ class NovaMind(nn.Module):
             next_token = torch.multinomial(probs, num_samples=1)  # (B, 1)
             generated.append(next_token)
 
-            # 推进一步
+
             out = self.forward(
                 next_token,
                 layer_states=layer_states,

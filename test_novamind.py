@@ -1,8 +1,10 @@
 """
-NovaMind 快速冒烟测试
-验证所有模块能正常前向传播，无 import 错误
+NovaMind quick smoke test.
 
-运行: python test_novamind.py
+Verifies that all modules import cleanly and complete a forward pass without
+runtime errors.
+
+Run: python test_novamind.py
 """
 import sys
 import traceback
@@ -16,11 +18,11 @@ sys.path.insert(0, str(ROOT))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DTYPE = torch.bfloat16 if torch.cuda.is_available() else torch.float32
 
-print(f"设备: {DEVICE}, 精度: {DTYPE}\n")
+print(f"Device: {DEVICE}, dtype: {DTYPE}\n")
 
 results = {}
 
-# ── 测试 1: Config
+
 try:
     from novamind.config import NovaMindConfig
     cfg_3b = NovaMindConfig.from_size("3b")
@@ -31,7 +33,7 @@ try:
 except Exception as e:
     results["Config"] = f"✗ {e}"
 
-# ── 测试 2: SSM
+
 try:
     from novamind.core.ssm import SelectiveSSM, MultiHeadSSM
     ssm = SelectiveSSM(d_model=128, d_state=16).to(DEVICE).to(DTYPE)
@@ -49,14 +51,14 @@ except Exception as e:
     results["SSM"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 3: xLSTM
+
 try:
     from novamind.core.xlstm import xLSTMBlock
     xlstm = xLSTMBlock(d_model=128, d_head=32, num_heads=2).to(DEVICE).to(DTYPE)
     x = torch.randn(2, 32, 128, device=DEVICE, dtype=DTYPE)
     y, state = xlstm(x)
     assert y.shape == (2, 32, 128)
-    # 推理时状态继续
+
     y2, state2 = xlstm(x, state=state)
     assert y2.shape == (2, 32, 128)
     results["xLSTMBlock"] = "✓"
@@ -64,7 +66,7 @@ except Exception as e:
     results["xLSTMBlock"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 4: 可微逻辑
+
 try:
     from novamind.core.causal import TNorm, LogicConstraintLayer
     tnorm = TNorm("product")
@@ -72,7 +74,7 @@ try:
     b = torch.tensor([0.5, 0.7, 0.9])
     and_result = tnorm.and_(a, b)
     assert and_result.shape == (3,)
-    assert (and_result <= torch.min(a, b) + 0.01).all()  # product ≤ min
+    assert (and_result <= torch.min(a, b) + 0.01).all()
 
     logic = LogicConstraintLayer(d_model=64, num_predicates=8).to(DEVICE).to(DTYPE)
     x = torch.randn(2, 16, 64, device=DEVICE, dtype=DTYPE)
@@ -84,7 +86,7 @@ except Exception as e:
     results["TNorm + LogicLayer"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 5: 因果注意力
+
 try:
     from novamind.core.causal import CausalModulatedAttention
     attn = CausalModulatedAttention(d_model=128, num_heads=4, causal_dim=16).to(DEVICE).to(DTYPE)
@@ -96,7 +98,7 @@ except Exception as e:
     results["CausalModulatedAttn"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 6: TITANS 记忆
+
 try:
     from novamind.memory.titans import TITANSMemoryModule
     titans = TITANSMemoryModule(
@@ -106,7 +108,7 @@ try:
     y, fifo = titans(x)
     assert y.shape == (2, 32, 128)
     assert fifo is not None
-    # 第二次调用，携带 FIFO
+
     y2, fifo2 = titans(x, fifo_buffer=fifo)
     assert y2.shape == (2, 32, 128)
     results["TITANSMemory"] = "✓"
@@ -114,13 +116,13 @@ except Exception as e:
     results["TITANSMemory"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 7: WSC 优化器
+
 try:
     from novamind.learning.wsc import WSCOptimizer
     simple_model = torch.nn.Linear(64, 64).to(DEVICE)
     base_opt = torch.optim.AdamW(simple_model.parameters(), lr=1e-3)
     wsc = WSCOptimizer(simple_model, base_opt, reset_freq=5, reset_ratio=0.1)
-    for _ in range(6):  # 触发一次 SVD 重置
+    for _ in range(6):
         x_tmp = torch.randn(4, 64, device=DEVICE)
         loss = simple_model(x_tmp).sum()
         loss.backward()
@@ -131,7 +133,7 @@ except Exception as e:
     results["WSCOptimizer"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 8: LoRA
+
 try:
     from novamind.training.lora import inject_lora, freeze_base_model, estimate_vram
     test_model = torch.nn.Sequential(
@@ -150,12 +152,12 @@ except Exception as e:
     results["LoRA + VRAM estimate"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 9: 完整模型（小规格）
+
 try:
     from novamind.config import NovaMindConfig
     from novamind.model import NovaMind
 
-    # 用极小规格测试（不然 CPU 太慢）
+
     tiny_cfg = NovaMindConfig(
         vocab_size=1000,
         hidden_dim=128,
@@ -188,13 +190,13 @@ try:
     assert out["wsra"] is not None
 
     n_params = tiny_model.num_parameters()
-    print(f"\n[完整模型] 参数量: {n_params:,}")
+    print(f"\n[Full Model] Parameter count: {n_params:,}")
     results["Full NovaMind Model"] = "✓"
 except Exception as e:
     results["Full NovaMind Model"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 10: 生成（推理）
+
 try:
     input_ids = torch.randint(0, 1000, (1, 8), device=DEVICE)
     with torch.no_grad():
@@ -205,7 +207,7 @@ except Exception as e:
     results["Generation"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 11: ECAM 反事实干预
+
 try:
     from novamind.core.causal import CausalModulatedAttention, CounterfactualIntervention
     attn = CausalModulatedAttention(
@@ -223,7 +225,7 @@ except Exception as e:
     results["Counterfactual ECAM"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 12: QAT 量化层
+
 try:
     from novamind.training.quantization import apply_qat_quantization
     qat_model = torch.nn.Sequential(
@@ -246,7 +248,7 @@ except Exception as e:
     results["QAT Quantization"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 13: BitLinear 1.58-bit 加减电路
+
 try:
     from novamind.training.bitlinear import BitLinear158
     bitlinear = BitLinear158(32, 16, bias=True)
@@ -261,7 +263,7 @@ except Exception as e:
     results["BitLinear158"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 14: Unified Offload 原型
+
 try:
     from novamind.training.unified_offload import UnifiedMemoryOffloader
     layers = [torch.nn.Linear(16, 16), torch.nn.Linear(16, 16)]
@@ -275,7 +277,7 @@ except Exception as e:
     results["Unified Offload"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 15: 代码级 MCTS + 沙盒自验证
+
 try:
     from novamind.core.code_mcts import CodeMCTSReasoner, PythonSandbox
 
@@ -306,7 +308,7 @@ except Exception as e:
     results["Code MCTS"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 16: Sandbox Lint 早退
+
 try:
     from novamind.core.code_mcts import PythonSandbox
     import time
@@ -324,7 +326,7 @@ except Exception as e:
     results["Sandbox Early Exit Lint"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 17: Sandbox Compile/Import 早退
+
 try:
     from novamind.core.code_mcts import PythonSandbox
 
@@ -338,7 +340,7 @@ except Exception as e:
     results["Sandbox Early Exit Import"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 18: Synthetic Curriculum 结构
+
 try:
     from data.synthetic_curriculum import get_level_1_dataset
 
@@ -353,7 +355,7 @@ except Exception as e:
     results["Synthetic Curriculum"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 19: Synthetic Curriculum 测试可编译
+
 try:
     import ast
     from data.synthetic_curriculum import get_level_1_dataset
@@ -369,7 +371,7 @@ except Exception as e:
     results["Synthetic Curriculum AST"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 20: LOD Router 上下文切换
+
 try:
     from novamind.core.lod_router import get_lod_tier, lod_compute
 
@@ -385,7 +387,7 @@ except Exception as e:
     results["LOD Router"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 21: MCTS High-Fi 回传钩子
+
 try:
     from novamind.core.code_mcts import CodeMCTSReasoner, PythonSandbox
     from novamind.core.lod_router import get_lod_tier
@@ -421,7 +423,7 @@ except Exception as e:
     results["MCTS High-Fi Backprop"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 22: Vault Curriculum 结构
+
 try:
     from data.synthetic_curriculum import get_secure_vault_dataset
 
@@ -438,7 +440,7 @@ except Exception as e:
     results["Vault Curriculum"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 23: Sandbox AST Rollback 捕获
+
 try:
     from novamind.core.code_mcts import PythonSandbox
 
@@ -459,7 +461,7 @@ except Exception as e:
     results["Sandbox AST Rollback"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 24: Symbol Sentinel 未定义符号检测
+
 try:
     from novamind.core.symbol_sentinel import SymbolSentinel
 
@@ -472,7 +474,7 @@ except Exception as e:
     results["Symbol Sentinel"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 25: Symbol Sentinel 增量缓存
+
 try:
     from novamind.core.symbol_sentinel import SymbolSentinel
 
@@ -485,7 +487,7 @@ except Exception as e:
     results["Symbol Sentinel Incremental"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 26: Gradient Surgery CPU No-op
+
 try:
     from novamind.training.gradient_surgery import apply_surgical_mask
 
@@ -502,7 +504,7 @@ except Exception as e:
     results["Gradient Surgery"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 27: MET Entropy Gate
+
 try:
     from novamind.core.met_controller import METGate, calculate_entropy
 
@@ -517,7 +519,7 @@ except Exception as e:
     results["MET Gate"] = f"✗ {e}"
     traceback.print_exc()
 
-# ── 测试 28: MET Inertial Gating
+
 try:
     from novamind.core.met_controller import MetStateTracker
 
@@ -543,16 +545,16 @@ except Exception as e:
     traceback.print_exc()
 
 
-# ── 结果汇总
+
 print("\n" + "="*50)
-print("NovaMind 测试结果")
+print("NovaMind Test Results")
 print("="*50)
 passed = sum(1 for v in results.values() if v.startswith("✓"))
 total = len(results)
 for k, v in results.items():
     print(f"  {v}  {k}")
-print(f"\n通过: {passed}/{total}")
+print(f"\nPassed: {passed}/{total}")
 if passed == total:
-    print("🟢 所有测试通过！")
+    print("🟢 All tests passed!")
 else:
-    print("🔴 有测试失败，请检查上方报错")
+    print("🔴 Some tests failed. See the traceback above.")

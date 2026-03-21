@@ -1,11 +1,11 @@
 """
-NovaMind — 工业级代码 MCTS 推理引擎
+Industrial code-oriented MCTS reasoning engine.
 
-升级点:
-1. 节点状态从完整脚本改为 partial_code + block_index
-2. Expansion 改为块级增量扩展
-3. Sandbox 改为 4 层 early-exit 奖励漏斗
-4. 保留 macOS / Python 3.14 下优先 fork 的兼容逻辑
+Key upgrades:
+1. Node state is represented as partial_code + block_index.
+2. Expansion is incremental at the code-block level.
+3. The sandbox uses a four-stage early-exit reward funnel.
+4. macOS / Python 3.14 compatibility is preserved via the fork-first path.
 """
 
 from __future__ import annotations
@@ -401,11 +401,6 @@ class PythonSandbox:
 
 class CodeMCTSReasoner:
     """
-    代码级 MCTS:
-    - Selection: 用 UCB 找最值得扩展的 partial node
-    - Expansion: 只生成下一段 logical block
-    - Simulation: 把当前 partial_code 扔进 4 层奖励漏斗
-    - Backpropagation: 把奖励回传到根节点
     """
 
     def __init__(self,

@@ -1,4 +1,4 @@
-"""NovaMind — 下一代超轻量认知架构"""
+"""NovaMind — next-generation lightweight reasoning architecture."""
 from novamind.config import NovaMindConfig
 from novamind.model import NovaMind
 
