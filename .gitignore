@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs and reports
+*.log
+coverage.xml
+.coverage
+htmlcov/
+
+# Model artifacts
+checkpoints/
+outputs/
+runs/
+*.pt
+*.pth
+*.ckpt
+
+# Local data
+data/*.jsonl
+data/*.csv
+data/*.tsv
+
+# Notebook artifacts
+.ipynb_checkpoints/
