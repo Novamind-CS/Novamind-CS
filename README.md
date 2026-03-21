@@ -1,12 +1,13 @@
 <p align="center">
   <img
-    width="2000"
-    height="700"
+    width="2710"
+    height="800"
     alt="Novamind Banner"
-    src="https://github.com/user-attachments/assets/f91830e2-8014-4162-9b6f-a731ddab5e45"
+    src="https://github.com/user-attachments/assets/09dc25e6-529b-4b00-9872-ceb1f0258d5f"
   />
 </p>
 ---
+
 
 # NovaMind
 
