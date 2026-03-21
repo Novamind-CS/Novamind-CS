@@ -1,12 +1,4 @@
-<p align="center">
-  <img
-    width="2710"
-    height="800"
-    alt="Novamind Banner"
-    src="https://github.com/user-attachments/assets/09dc25e6-529b-4b00-9872-ceb1f0258d5f"
-  />
-</p>
----
+
 
 
 # NovaMind
@@ -17,6 +9,15 @@
 > The next leap in AI will not come solely from bigger models. It will come from systems that know **when to think harder**, **where to spend precision**, and **how to learn only from the part that truly failed**.
 
 ---
+
+<p align="center">
+  <img
+    width="2710"
+    height="800"
+    alt="Novamind Banner"
+    src="https://github.com/user-attachments/assets/09dc25e6-529b-4b00-9872-ceb1f0258d5f"
+  />
+</p>
 
 ## What This Is
 
