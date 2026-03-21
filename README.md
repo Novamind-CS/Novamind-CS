@@ -7,8 +7,8 @@
 
 <p align="center">
   <img
-    width="3168"
-    height="1344"
+    width="3000"
+    height="1000"
     alt="Novamind Banner"
     src="https://github.com/user-attachments/assets/f91830e2-8014-4162-9b6f-a731ddab5e45"
   />
