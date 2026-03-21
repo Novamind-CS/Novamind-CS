@@ -1,7 +1,3 @@
-# Novamind-CS: Surgical Reasoning on Consumer Silicon
-### *Breaking the Memory Wall with Metacognitive Gating and Surgical Gradients.*
-
-**Mission:** Democratizing high-order reasoning by maximizing **Information Gain per Watt** on a single RTX 5070 Ti or Mac M-Series machine.
 <p align="center">
   <img
     width="2000"
@@ -12,346 +8,321 @@
 </p>
 ---
 
-## Abstract
+# NovaMind
 
-`Novamind-CS` is a research-oriented neuro-symbolic reasoning engine designed for a hardware regime that mainstream large-model architecture still treats as an afterthought: **consumer-grade compute with strict VRAM ceilings**.
+**Surgical Reasoning on Consumer Silicon.**  
+*Breaking the memory wall with metacognitive gating, causal modulation, and surgical gradients.*
 
-The dominant Transformer and MoE paradigm scales impressively in aggregate capability, but it remains structurally wasteful under constrained memory. Self-attention expands context cost, KV-cache growth eats scarce VRAM, and dense high-precision decoding spends expensive compute on branches that were invalid from the moment they were sampled. On a 16 GB device, this is not elegance. It is brute force under thermal and memory pressure.
-
-`Novamind-CS` explores a different thesis:
-
-> The future of small-footprint reasoning is not merely smaller models. It is better control over *where* computation happens, *when* symbolic verification intervenes, and *which* gradients deserve to survive.
-
-The system combines:
-
-- a state-space reasoning substrate inspired by Mamba-style sequential compression,
-- entropy-triggered dual-process gating,
-- compiler-aware rollback analysis,
-- symbolic scope enforcement at logit time,
-- and surgical high-fidelity gradient replay.
-
-The result is a reasoning engine that treats compute as a first-class resource, not an infinite backdrop.
-
-## Why This Project Exists
-
-The last era of AI was shaped by **scaling laws**: add parameters, add tokens, add data-center capital. That regime delivered broad competence, but it also normalized waste. On constrained hardware, the question changes:
-
-**How much verified reasoning can we extract per joule, per megabyte, and per backward pass?**
-
-`Novamind-CS` is built around that question. It is an attempt to move from **statistical abundance** to **algorithmic efficiency**.
+> The next leap in AI will not come solely from bigger models. It will come from systems that know **when to think harder**, **where to spend precision**, and **how to learn only from the part that truly failed**.
 
 ---
 
-## The Core Thesis: Neuro-Symbolic Efficiency
+## What This Is
 
-Classical autoregressive generation assumes that reasoning quality improves if the model samples longer and larger. `Novamind-CS` instead treats reasoning as a **selective control loop**:
+NovaMind is a research-grade neuro-symbolic reasoning engine built for one specific, usually ignored hardware regime: **consumer GPUs with strict VRAM ceilings**.
 
-1. use cheap inference when confidence is high,
-2. escalate into search when entropy rises,
-3. prevent trivial symbolic errors before execution,
-4. localize failure precisely when execution breaks,
-5. replay only verified or high-value traces in high precision,
-6. update weights non-uniformly around the actual defect boundary.
+Most LLM architecture assumes datacenters. NovaMind assumes a single RTX 4090, 3090, 5070 Ti, or a Mac M-series machine, and treats that constraint as a design principle rather than an inconvenience. The goal is simple: maximize **verified reasoning per watt**, not leaderboard score under unlimited compute.
 
-This is not “just another model.” It is a computational policy.
+This is not a lightly patched Transformer. It is a ground-up attempt to answer a more practical question:
+
+**What does a reasoning-first model look like when memory is finite and every compute cycle matters?**
 
 ---
 
-## The 5 Pillars of Innovation
+## Why Current Architectures Feel Wasteful
+
+On constrained hardware, standard Transformer stacks are expensive in all the wrong places:
+
+- **Quadratic attention**: sequence cost explodes with context length
+- **KV cache growth**: memory usage expands with every token
+- **Dense decoding**: easy tokens and hard tokens are treated with the same budget
+- **Flat credit assignment**: one bad line can penalize an entire correct prefix
+- **Static precision**: every branch pays FP16/BF16 cost even when it is obviously speculative
+
+NovaMind replaces each of those failure modes with a more selective mechanism.
+
+---
+
+## The Five Pillars
 
 ### 1. MET: Metacognitive Entropy Throttling
 
-`MET` is the control system that decides when the engine should remain in **System 1** and when it must escalate into **System 2**.
+NovaMind runs two reasoning modes:
 
-- **System 1**: fast-path token continuation
-- **System 2**: explicit MCTS-style branching, validation, rollback, and replay
+- **System 1**: fast continuation
+- **System 2**: explicit branching, validation, rollback, and replay
 
-The trigger variable is **Shannon entropy** over the next-token distribution:
+The switch is controlled by Shannon entropy over the next-token distribution:
 
-\[
-H(p) = -\sum_i p_i \log p_i
-\]
+```text
+H(p) = -∑ pᵢ log pᵢ
 
-When entropy exceeds a threshold \( \tau \), the system interprets that state as epistemic uncertainty rather than mere randomness:
+Trigger System 2 if H(p) > τ
+```
 
-\[
-\text{Trigger System 2 if } H(p) > \tau
-\]
+Once entropy spikes, the engine stays in System 2 for a short **caution window**. That prevents constant switching during recursion, nested loops, or other unstable local regions.
 
-The key refinement is **inertial gating**. Once high entropy is detected, `Novamind-CS` stays in System 2 for a short caution window rather than oscillating token-by-token between shallow and deep reasoning. This gives the model temporal coherence during difficult local regions such as nested loops, recursive calls, and state-heavy logic.
+Most systems overspend uniformly. MET spends compute only where uncertainty actually justifies it.
 
-**Why it matters:**  
-Most reasoning engines overspend compute uniformly. MET spends it only where uncertainty justifies the cost.
+### 2. CATTS: Confidence-Aware Test-Time Scaling
 
-### 2. AST-Aware Rollback
+Inside the model, CATTS provides **layer-level early exit** based on confidence and representation drift.
 
-Conventional code-generation pipelines flatten failure into a single scalar penalty: pass or fail. That is mathematically crude and optimization-poor.
+At intermediate layers, NovaMind estimates:
 
-`AST-Aware Rollback` treats program failure like a compiler engineer would:
+- output entropy
+- internal representation drift
 
-- execute the candidate,
-- intercept the exact traceback location,
-- map the failing line back to the Python AST,
-- preserve credit for all verified prefix logic,
-- penalize only the syntactic region that actually broke.
+Then it decides whether to:
 
-Instead of saying *“the whole program is bad,”* the engine asks:
+- **exit early**,
+- **continue normally**,
+- or **escalate into deeper reasoning**.
 
-> *Which node failed, and how much of the preceding logic was already correct?*
+```text
+adjusted_confidence = base_confidence × (1 - 0.3 × drift_score)
 
-A rollback-style reward can be expressed as:
+confidence > 0.85  -> early exit
+confidence < 0.45  -> tree search
+otherwise          -> full forward
+```
 
-\[
-R_{\text{rollback}} =
-\begin{cases}
-+100, & \text{if execution succeeds} \\
-\alpha(\ell - 1) - \beta, & \text{if failure occurs at line } \ell
-\end{cases}
-\]
-
-where:
-
-- \( \alpha \) rewards validated prefix depth,
-- \( \beta \) penalizes the failing region.
-
-This produces a much better training signal than flat binary rejection.
-
-**Why it matters:**  
-Rollback turns the sandbox into a granular critic, not a blunt hammer.
+This is not prompt-level routing. It is **inference-time compute allocation inside the network itself**.
 
 ### 3. SGA: Surgical Gradient Attribution
 
-If only the final lines of a generated program are wrong, then updating the model as though *every token were equally responsible* is wasteful and destabilizing.
+If a program fails at line `ℓ`, NovaMind does not treat every previous token as equally guilty.
 
-`SGA` introduces **non-uniform gradient scaling** around the failure boundary discovered by rollback.
+Instead it scales gradients around the failure boundary:
 
-Let \( i_{\text{fail}} \) denote the token index aligned with the failing code region. Then the effective gradient is modified as:
+```text
+g'ᵢ = 0.1 × gᵢ      if i < i_fail
+g'ᵢ = 10.0 × gᵢ     if i ≥ i_fail
+```
 
-\[
-g'_i =
-\begin{cases}
-0.1 g_i, & i < i_{\text{fail}} \\
-10.0 g_i, & i \ge i_{\text{fail}}
-\end{cases}
-\]
+That means:
 
-This yields two effects:
+- correct prefixes are preserved,
+- the failing region is corrected aggressively.
 
-- **prefix preservation**: already-correct logic is not catastrophically overwritten,
-- **error amplification**: the defective region is corrected aggressively.
+This is gradient routing with structural locality, not blunt backprop.
 
-In practical terms, SGA acts like a learned version of “do not rewrite the part that already works.”
+### 4. WSC: Weight Space Consolidation
 
-**Why it matters:**  
-SGA is not just optimization. It is *credit assignment under structural locality*.
+NovaMind supports **online continual learning** without catastrophic forgetting.
 
-### 4. ISFS: Incremental Symbol Flow Sentinel
+It does that through two mechanisms:
 
-A large fraction of generated code fails for embarrassingly simple reasons: undefined variables, premature references, scope leaks, or impossible symbol flows.
+- **SVD-based low-contribution resets** to recover plasticity
+- **EMA shadow averaging** to keep the model close to a stable operating point
 
-`ISFS` solves this before execution.
+```text
+Reset frequency: every 500 steps
+Reset ratio:     lowest 5% singular directions
+EMA decay:       0.999
+```
 
-It incrementally tracks:
+The intuition is simple: free unhelpful directions, preserve stable ones.
 
-- `defined_symbols`
-- `accessed_symbols`
-- scope-sensitive symbol availability over partial code prefixes
+### 5. TITANS: Inference-Time Associative Memory
 
-Then, during token generation, it maps undefined references back into token space and applies a direct logit mask:
+Instead of growing a KV cache forever, NovaMind uses a compact associative memory whose **weights act as memory**.
 
-\[
-\text{logit}(t_{\text{invalid}}) \leftarrow -\infty
-\]
+During inference:
 
-That means invalid identifiers can be blocked *before* they are sampled.
+- high-surprise tokens are written into memory,
+- low-surprise tokens pass through cheaply.
 
-This is a subtle but important shift. Instead of using execution to discover obvious scope errors, the engine applies **symbolic constraints at generation time**.
+```text
+O(1) memory usage with respect to sequence length
+2M+ context targets without proportional VRAM growth
+```
 
-**Why it matters:**  
-ISFS reduces wasted search width, lowers sandbox load, and converts compiler knowledge into real-time decoding bias.
-
-### 5. LOD-Compute: Level-of-Detail Precision Routing
-
-Borrowed conceptually from real-time graphics, `LOD-Compute` uses different precision tiers for different reasoning phases.
-
-- **Low-Fi mode**: ultra-cheap branch expansion in ternary / 1.58-bit-style routing
-- **High-Fi mode**: FP16/BF16 replay on the winning path for stable gradients
-
-This mirrors Level-of-Detail rendering in 3D engines:
-
-- distant objects get cheaper meshes,
-- critical foreground objects get full resolution.
-
-Here, the analogy becomes:
-
-- speculative branches get low precision,
-- verified branches get high precision.
-
-A simplified cost model:
-
-\[
-C_{\text{total}} =
-N_{\text{low}} \cdot C_{1.58\text{-bit}} +
-N_{\text{high}} \cdot C_{\text{FP16}}
-\]
-
-with:
-
-\[
-C_{1.58\text{-bit}} \ll C_{\text{FP16}}
-\]
-
-The entire point is not that low precision is “better.” It is that **broad search should be cheap**, and **accurate learning should be expensive only where justified**.
-
-**Why it matters:**  
-LOD-Compute converts precision from a static model property into a dynamic control variable.
+This is not passive caching. It is compressed, learned, associative recall.
 
 ---
 
-## Architecture & Logic Flow
+## Architecture
 
-```mermaid
-flowchart TD
-    A["Input Prompt / Partial Code"] --> B["System 1 Forward Pass"]
-    B --> C{"MET Entropy Gate"}
-    C -->|Low Entropy| D["Fast Path Token Acceptance"]
-    C -->|High Entropy| E["System 2 Reasoning Window"]
+```text
+Input Tokens
+    │
+    ▼
+Embedding Layer
+    │
+    ▼  ×N layers
+┌─────────────────────────────────────────────────────┐
+│  HybridBlock                                        │
+│                                                     │
+│  ┌─────────────┐  ┌─────────────┐  ┌────────────┐  │
+│  │  Mamba-2    │  │   xLSTM     │  │  Causal    │  │
+│  │  SSM Head   │  │  Matrix Mem │  │  Attn Head │  │
+│  │  O(1) mem   │  │  High-rank  │  │  ECAM+SCM  │  │
+│  └──────┬──────┘  └──────┬──────┘  └─────┬──────┘  │
+│         └───────────┬────┘               │         │
+│               Gated Fusion ◄─────────────┘         │
+│                     │                              │
+│              FFN (SwiGLU)                          │
+└─────────────────────┬───────────────────────────────┘
+                      │
+             TITANS Memory          ← every N layers
+                      │
+             CATTS Dispatcher       ← early exit check
+                      │
+          Logic Constraint Layer    ← optional
+                      │
+                 LM Head
+```
 
-    E --> F["Low-Fi Proposal Generation"]
-    F --> G["ISFS Symbol Sentinel"]
-    G --> H["MCTS Branch Expansion"]
-    H --> I["Python Sandbox Execution"]
-    I --> J["AST-Aware Rollback"]
+Every `HybridBlock` runs three parallel paths and merges them with learned gating:
 
-    J --> K{"Verified?"}
-    K -->|No| H
-    K -->|Yes| L["High-Fi Replay (FP16/BF16)"]
-    L --> M["SGA: Surgical Gradient Attribution"]
-    M --> N["Optimizer Update / Memory Consolidation"]
+- **SSM path**: global context compression with constant-memory inference
+- **xLSTM path**: precise, high-rank matrix recall
+- **Causal attention path**: local, high-value dependencies with causal modulation
+
+---
+
+## Project Structure
+
+```text
+novamind/
+├── config.py           all hyperparameters in one place
+├── model.py            full model assembly
+├── train.py            training loop with memory-aware optimizations
+├── inference.py        inference with CATTS adaptive routing
+│
+├── core/
+│   ├── ssm.py          selective SSM (Mamba-2 style)
+│   ├── xlstm.py        matrix-memory recurrent block
+│   ├── causal.py       causal attention + differentiable logic
+│   ├── catts.py        confidence-aware test-time scaling
+│   ├── code_mcts.py    code-level MCTS reasoning engine
+│   ├── ast_rollback.py traceback-to-AST rollback analysis
+│   └── symbol_sentinel.py incremental symbol-flow guard
+│
+├── memory/
+│   └── titans.py       inference-time associative memory
+│
+├── learning/
+│   └── wsc.py          weight-space consolidation
+│
+└── training/
+    ├── lora.py         LoRA + activation offload + VRAM tools
+    ├── bitlinear.py    BitLinear / 1.58-bit routing
+    ├── gradient_surgery.py
+    └── unified_offload.py
 ```
 
 ---
 
-## Reasoning Efficiency
+## 16 GB VRAM Budget
 
-The relevant question is not just *accuracy*. It is **how much verified reasoning is achieved per unit compute**.
+NovaMind-7B, full LoRA fine-tune, single consumer GPU:
 
-### Benchmark Philosophy
+| Component | Memory |
+|---|---:|
+| Model weights (bf16) | ~7.0 GB |
+| LoRA adapters (rank=64) | ~0.4 GB |
+| Activations (checkpointing on) | ~2.8 GB |
+| SSM hidden states | ~0.6 GB |
+| Causal graph buffers | ~0.3 GB |
+| CUDA misc | ~1.5 GB |
+| **Total peak** | **~12.6 - 13.6 GB** |
 
-`Novamind-CS` reports not only task success, but also:
-
-- **VRAM usage**
-- **high-fidelity token budget**
-- **Cognitive Compression Ratio**
-- **Reasoning Efficiency**
-
-### Core Metrics
-
-- **Cognitive Compression Ratio**  
-  Percentage of tokens handled by System 1 versus System 2.
-
-- **Reasoning Efficiency**  
-  A practical score of solved tasks over memory-cost and compute time.
-
-A generic form:
-
-\[
-\text{Reasoning Efficiency} =
-\frac{\text{Solved Tasks}}
-{\text{VRAM Usage} \times \text{Compute Time}}
-\]
-
-### Illustrative Comparison
-
-| Metric | Standard Transformer | Novamind-CS |
-|---|---:|---:|
-| Context Memory Growth | High (KV-cache bound) | State-compressed, search-routed |
-| Consumer VRAM Suitability | Weak at long-context reasoning | Designed for 16 GB operation |
-| Symbolic Error Prevention | Post-hoc only | Pre-sampling via ISFS |
-| Credit Assignment | Mostly uniform | Rollback + SGA localized |
-| Deep Reasoning Trigger | Always dense or always shallow | Entropy-gated |
-| Precision Policy | Static | Dynamic LOD-Compute |
-| Cognitive Compression Ratio | Not explicit | Explicitly measured |
-| Verified Branch Replay | Rare | Built-in |
-
-### Illustrative RC Snapshot
-
-| Benchmark | Dense Baseline | Novamind-CS RC |
-|---|---:|---:|
-| High-Fi Token Budget | 3909 | 1303 |
-| High-Fi Efficiency Gain | 1.0x | 3.0x |
-| AST Fault Localization | No | Yes |
-| Logit-Level Symbol Blocking | No | Yes |
-| Deliberate Reasoning Gate | No | Yes |
-
-The exact values are expected to evolve, but the pattern matters: `Novamind-CS` reduces expensive compute by narrowing high-fidelity replay to **verified and information-rich trajectories**.
+The important part is not the exact decimal place. It is the design direction: NovaMind spends memory on verified reasoning, not unbounded cache growth.
 
 ---
 
-## Why This Matters
+## Quick Comparison
 
-This project argues for a shift:
-
-### From Scaling Laws to Efficiency Laws
-
-The old recipe was straightforward:
-
-- more parameters,
-- more data,
-- more GPUs,
-- more training time.
-
-That recipe still works, but it is not the only path to intelligence. It is merely the most brute-force path.
-
-`Novamind-CS` is part of a different research direction:
-
-> Intelligence should improve not only by increasing compute, but by **allocating compute more intelligently**.
-
-This is the transition from **scaling laws** to **efficiency laws**.
-
-### A Cross-Disciplinary Stack
-
-This project sits at the intersection of three traditions:
-
-- **Compiler Theory**  
-  ASTs, tracebacks, symbol tables, fault localization, structured rollback
-
-- **Information Theory**  
-  entropy gating, uncertainty-aware routing, efficient bit allocation
-
-- **Cognitive Psychology**  
-  dual-process reasoning, metacognitive escalation, deliberate correction under uncertainty
-
-That combination is deliberate. The goal is not merely to make models smaller. The goal is to make them **less wasteful and more self-aware**.
+| Dimension | Standard Transformer | NovaMind |
+|---|---|---|
+| Inference memory | O(N), cache grows with context | **O(1), fixed-state reasoning core** |
+| Long-context behavior | memory-bound quickly | **designed for compressed long-context reasoning** |
+| Compute allocation | uniform | **entropy-gated and confidence-routed** |
+| Credit assignment | flat | **surgical** |
+| Continual learning | retrain-heavy | **online-friendly with WSC** |
+| 16 GB fine-tuning | usually painful | **first-class target** |
+| Reasoning depth | fixed | **dynamic System 1 / System 2** |
 
 ---
 
-## Getting Started
-
-### Install
+## Install
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Run the Test Suite
+Recommended extras:
 
 ```bash
-python3 test_novamind.py
+pip install mamba-ssm causal-conv1d
+pip install bitsandbytes accelerate
 ```
 
-### Launch the Showcase Dashboard
+Or use the setup helper:
 
 ```bash
-python3 main.py --mode showcase
+./setup_env.sh
 ```
 
-### Run the `vault_stress_test`
+---
+
+## Quick Start
+
+### Build a model
+
+```python
+from novamind import NovaMind, NovaMindConfig
+
+cfg = NovaMindConfig.from_size("7b")
+model = NovaMind(cfg)
+print(model.num_parameters() / 1e9)
+```
+
+### Fine-tune on 16 GB
 
 ```bash
-python3 train.py \
+python train.py \
+    --size 7b \
+    --data ./data/train.jsonl \
+    --output ./checkpoints \
+    --tokenizer meta-llama/Llama-2-7b-hf \
+    --batch_size 1 \
+    --grad_accum_steps 16 \
+    --lora_rank 64 \
+    --lora_alpha 128 \
+    --use_wsc \
+    --bf16
+```
+
+### Run inference
+
+```bash
+python inference.py --checkpoint ./ckpt.pt --size 7b \
+    --prompt "Explain the P vs NP problem"
+```
+
+### Interactive mode
+
+```bash
+python inference.py --checkpoint ./ckpt.pt --size 7b --interactive
+```
+
+### Smoke test
+
+```bash
+python test_novamind.py
+```
+
+---
+
+## The Reasoning Stress Test
+
+If you want to see the "thinking" behavior rather than just text generation, run:
+
+```bash
+python train.py \
   --vault_stress_test \
   --vault_tasks 1 \
   --vault_candidate_paths 4 \
@@ -362,69 +333,111 @@ python3 train.py \
   --met_caution_window 5
 ```
 
-This benchmark exercises the full stack:
+What you should see:
 
-- MET gating
-- low-fi MCTS exploration
-- ISFS symbol blocking
-- AST-aware rollback
-- high-fi replay
-- SGA update logic
-- final reasoning efficiency dashboard
+- MET deciding when to escalate into System 2
+- MCTS exploring multiple candidate paths
+- rollback traces catching poisoned logic
+- high-fi replay only on winning branches
+- final reasoning-efficiency summary
 
-### Run Code-Oriented Reasoning
+If you want a more guided walkthrough, see [Docs/QuickStart.md](/Users/felix/Desktop/Novamind/Docs/QuickStart.md).
 
-```bash
-python3 inference.py \
-  --prompt "Write a Python function is_even(n) that returns True if n is even." \
-  --mcts_code
+---
+
+## Useful Snippets
+
+### CATTS in code
+
+```python
+from novamind.core.catts import AdaptiveNovaMindWrapper
+
+wrapper = AdaptiveNovaMindWrapper(model, cfg)
+result = wrapper.adaptive_forward(input_ids)
+
+decision = result["decision"]
+print(decision.mode)
+print(decision.confidence)
+print(decision.exit_layer)
+print(result["catts_stats"])
+```
+
+### Continual learning with WSC
+
+```python
+from novamind.learning.wsc import WSCOptimizer
+
+base_opt = torch.optim.AdamW(trainable_params, lr=2e-4)
+optimizer = WSCOptimizer(model, base_opt, reset_freq=500)
+
+loss.backward()
+optimizer.step()
+optimizer.zero_grad()
+```
+
+### Estimate VRAM before committing
+
+```python
+from novamind.training.lora import estimate_vram
+
+est = estimate_vram(
+    num_params=7_000_000_000,
+    hidden_dim=4096,
+    num_layers=32,
+    use_activation_checkpointing=True,
+)
+print(est)
 ```
 
 ---
 
-## Project Status
+## Roadmap
 
-`Novamind-CS` is currently positioned as a **v1.0 Release Candidate** and research demo. It is intended as:
+### Implemented
 
-- a public benchmark scaffold,
-- an academic portfolio artifact,
-- and a serious prototype for neuro-symbolic efficiency on constrained hardware.
+- [x] Selective SSM reasoning core
+- [x] xLSTM matrix memory
+- [x] TITANS inference-time associative memory
+- [x] Causal attention with differentiable logic
+- [x] WSC continual learning
+- [x] CATTS adaptive compute dispatcher
+- [x] LoRA + activation offload for 16 GB training
+- [x] Code MCTS sandbox, AST rollback, symbol sentinel, MET, SGA
 
-It is not yet a claim of final-state AGI infrastructure. It is a claim that **reasoning architecture should be judged by efficiency, locality, and verification quality**, not parameter count alone.
+### Next
 
----
-
-## Future Roadmap
-
-### Near-Term
-
-- token-level MET state caching with richer temporal priors
-- more precise BPE-aware symbol masking via tokenizer tries
-- stronger dense baselines for controlled head-to-head benchmarking
-- better CUDA kernels for ternary low-fi branch expansion
-
-### Mid-Term
-
-- multi-modal symbolic sentinels for code + diagram + structured text reasoning
-- cross-file AST rollback for repository-scale coding tasks
-- neuro-symbolic memory routing across long-horizon sessions
-- reinforcement schedules tied to rollback depth and symbolic novelty
-
-### Long-Term
-
-- formal proof-assisted reasoning loops
-- differentiable compiler feedback for structured program synthesis
-- hybrid symbolic world models beyond code, including spatial and embodied tasks
+- [ ] Triton-fused kernels for faster low-fi branching
+- [ ] stronger dense baselines for cleaner apples-to-apples comparison
+- [ ] tokenizer-trie symbol masking for more precise ISFS blocking
+- [ ] richer code benchmarks beyond the current vault stress test
+- [ ] multimodal symbolic sentinels
 
 ---
 
-## Closing Note
+## Honest Status
 
-`Novamind-CS` is built on a simple but increasingly urgent belief:
+Every major module in this repository is real PyTorch, not placeholder pseudocode.
 
-> The next leap in AI will not come solely from bigger models. It will come from systems that know when to think harder, where to spend precision, and how to learn only from the part that truly failed.
+What is already true:
 
-That is the wager behind surgical reasoning on consumer silicon.
+- the code runs,
+- the test suite passes,
+- the memory-aware design is reflected in the implementation,
+- the reasoning dashboard is real.
+
+What still needs more empirical work:
+
+- serious GPU-side throughput benchmarking,
+- stronger training convergence evidence,
+- large-scale comparative evaluation,
+- long-context production stress beyond prototype benchmarks.
+
+The claim is not “this beats every frontier model on one card.”  
+The claim is simpler and more interesting:
+
+**NovaMind makes structurally better decisions about where to spend compute.**
+
+On constrained hardware, that is the difference between a demo and a system.
 
 ---
 
