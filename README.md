@@ -219,7 +219,7 @@ novamind/
 
 ## 16 GB VRAM Budget
 
-NovaMind-7B, full LoRA fine-tune, single consumer GPU:
+Estimated budget for the **NovaMind 7B configuration** under full LoRA fine-tuning on a single consumer GPU:
 
 | Component | Memory |
 |---|---:|
@@ -231,6 +231,7 @@ NovaMind-7B, full LoRA fine-tune, single consumer GPU:
 | CUDA misc | ~1.5 GB |
 | **Total peak** | **~12.6 - 13.6 GB** |
 
+This section describes the **target 7B architecture budget**, not a bundled pretrained checkpoint.
 The important part is not the exact decimal place. It is the design direction: NovaMind spends memory on verified reasoning, not unbounded cache growth.
 
 ---
@@ -277,6 +278,8 @@ Or use the setup helper:
 ```python
 from novamind import NovaMind, NovaMindConfig
 
+# This instantiates the 7B configuration spec.
+# It does not load pretrained weights by itself.
 cfg = NovaMindConfig.from_size("7b")
 model = NovaMind(cfg)
 print(model.num_parameters() / 1e9)
@@ -301,6 +304,7 @@ python train.py \
 ### Run inference
 
 ```bash
+# `--checkpoint` points to your own trained or exported weights.
 python inference.py --checkpoint ./ckpt.pt --size 7b \
     --prompt "Explain the P vs NP problem"
 ```
@@ -308,6 +312,7 @@ python inference.py --checkpoint ./ckpt.pt --size 7b \
 ### Interactive mode
 
 ```bash
+# `--size 7b` selects the 7B config preset.
 python inference.py --checkpoint ./ckpt.pt --size 7b --interactive
 ```
 
@@ -445,4 +450,4 @@ On constrained hardware, that is the difference between a demo and a system.
 
 ## License
 
-MIT License.
+Apache License 2.0.
