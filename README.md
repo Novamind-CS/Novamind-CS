@@ -1,186 +1,327 @@
-# Micro-CS
+# Novamind-CS: Surgical Reasoning on Consumer Silicon
+### *Breaking the Memory Wall with Metacognitive Gating and Surgical Gradients.*
 
-**Neuro-Symbolic Reasoning Engine for Consumer GPUs**  
-*Democratizing High-Order Reasoning on 16 GB Hardware*
+**Mission:** Democratizing high-order reasoning by maximizing **Information Gain per Watt** on a single RTX 5070 Ti or Mac M-Series machine.
 
-Micro-CS is an experimental research codebase that explores how far rigorous reasoning can be pushed on commodity hardware by combining a Mamba-style state-space backbone with symbolic execution, metacognitive routing, and selective high-fidelity learning.
-
-Rather than treating language generation as unconstrained next-token imitation, Micro-CS treats reasoning as a staged control problem:
-
-1. cheap low-fidelity search for breadth,
-2. symbolic verification for correctness,
-3. surgical rollback for fault localization,
-4. selective high-fidelity backpropagation for durable learning.
+---
 
 ## Abstract
 
-Standard Transformer and MoE systems are exceptionally capable, but their deployment characteristics remain poorly matched to the consumer-GPU regime. The core issue is architectural: self-attention scales poorly with context length, KV cache growth creates a hard memory wall, and dense high-precision decoding wastes compute on branches that are obviously invalid only after full generation.
+`Novamind-CS` is a research-oriented neuro-symbolic reasoning engine designed for a hardware regime that mainstream large-model architecture still treats as an afterthought: **consumer-grade compute with strict VRAM ceilings**.
 
-Micro-CS investigates a different operating point.
+The dominant Transformer and MoE paradigm scales impressively in aggregate capability, but it remains structurally wasteful under constrained memory. Self-attention expands context cost, KV-cache growth eats scarce VRAM, and dense high-precision decoding spends expensive compute on branches that were invalid from the moment they were sampled. On a 16 GB device, this is not elegance. It is brute force under thermal and memory pressure.
 
-- A Mamba-2-style state-space backbone replaces the assumption that all history must remain explicitly materialized in memory.
-- Monte Carlo Tree Search (MCTS) replaces single-shot decoding for difficult code and reasoning tasks.
-- Symbolic guards intervene before and after execution, pruning invalid branches before they consume scarce high-fidelity budget.
-- Gradient updates are focused near the actual error boundary instead of diffusing uniformly across already-correct logic.
+`Novamind-CS` explores a different thesis:
 
-The result is a research system designed to break the practical memory wall on 16 GB devices while preserving a path toward deeper, more deliberate reasoning.
+> The future of small-footprint reasoning is not merely smaller models. It is better control over *where* computation happens, *when* symbolic verification intervenes, and *which* gradients deserve to survive.
 
-## Why This Exists
+The system combines:
 
-Micro-CS is built around a simple thesis:
+- a state-space reasoning substrate inspired by Mamba-style sequential compression,
+- entropy-triggered dual-process gating,
+- compiler-aware rollback analysis,
+- symbolic scope enforcement at logit time,
+- and surgical high-fidelity gradient replay.
 
-> If high-order reasoning is expensive, then the engine should spend full precision only where uncertainty and verification justify it.
+The result is a reasoning engine that treats compute as a first-class resource, not an infinite backdrop.
 
-That thesis leads to a dual-process architecture:
+## Why This Project Exists
 
-- **System 1**: low-cost sequential modeling and confidence-aware token generation.
-- **System 2**: explicit search, sandbox validation, rollback analysis, and targeted correction.
+The last era of AI was shaped by **scaling laws**: add parameters, add tokens, add data-center capital. That regime delivered broad competence, but it also normalized waste. On constrained hardware, the question changes:
 
-## The 5 Pillars
+**How much verified reasoning can we extract per joule, per megabyte, and per backward pass?**
 
-### 1. LOD-Compute: Level-of-Detail Precision Routing
+`Novamind-CS` is built around that question. It is an attempt to move from **statistical abundance** to **algorithmic efficiency**.
 
-Micro-CS uses a graphics-inspired compute policy.
+---
 
-- During branch exploration, candidate paths are generated in **low-fidelity** mode using ternary 1.58-bit-style `BitLinear` routing.
-- Once a branch is verified, the same path is replayed in **high-fidelity** FP16/BF16 mode for gradient quality.
+## The Core Thesis: Neuro-Symbolic Efficiency
 
-This creates an explicit separation between search cost and learning quality.
+Classical autoregressive generation assumes that reasoning quality improves if the model samples longer and larger. `Novamind-CS` instead treats reasoning as a **selective control loop**:
+
+1. use cheap inference when confidence is high,
+2. escalate into search when entropy rises,
+3. prevent trivial symbolic errors before execution,
+4. localize failure precisely when execution breaks,
+5. replay only verified or high-value traces in high precision,
+6. update weights non-uniformly around the actual defect boundary.
+
+This is not “just another model.” It is a computational policy.
+
+---
+
+## The 5 Pillars of Innovation
+
+### 1. MET: Metacognitive Entropy Throttling
+
+`MET` is the control system that decides when the engine should remain in **System 1** and when it must escalate into **System 2**.
+
+- **System 1**: fast-path token continuation
+- **System 2**: explicit MCTS-style branching, validation, rollback, and replay
+
+The trigger variable is **Shannon entropy** over the next-token distribution:
 
 \[
-\text{Energy} \approx N_{\text{low-fi}} \cdot C_{\text{ternary}} + N_{\text{high-fi}} \cdot C_{\text{fp16}}
+H(p) = -\sum_i p_i \log p_i
 \]
 
-When \(C_{\text{ternary}} \ll C_{\text{fp16}}\), the system can search broadly without paying full precision for every failed idea.
+When entropy exceeds a threshold \( \tau \), the system interprets that state as epistemic uncertainty rather than mere randomness:
 
-### 2. AST-Rollback: Syntax-Grounded Fault Localization
+\[
+\text{Trigger System 2 if } H(p) > \tau
+\]
 
-Instead of flattening all failed programs into a single negative reward, Micro-CS intercepts the traceback, maps the failure line back into the Python AST, and computes a rollback-aware reward.
+The key refinement is **inertial gating**. Once high entropy is detected, `Novamind-CS` stays in System 2 for a short caution window rather than oscillating token-by-token between shallow and deep reasoning. This gives the model temporal coherence during difficult local regions such as nested loops, recursive calls, and state-heavy logic.
+
+**Why it matters:**  
+Most reasoning engines overspend compute uniformly. MET spends it only where uncertainty justifies the cost.
+
+### 2. AST-Aware Rollback
+
+Conventional code-generation pipelines flatten failure into a single scalar penalty: pass or fail. That is mathematically crude and optimization-poor.
+
+`AST-Aware Rollback` treats program failure like a compiler engineer would:
+
+- execute the candidate,
+- intercept the exact traceback location,
+- map the failing line back to the Python AST,
+- preserve credit for all verified prefix logic,
+- penalize only the syntactic region that actually broke.
+
+Instead of saying *“the whole program is bad,”* the engine asks:
+
+> *Which node failed, and how much of the preceding logic was already correct?*
+
+A rollback-style reward can be expressed as:
 
 \[
 R_{\text{rollback}} =
 \begin{cases}
-100, & \text{if success} \\
-0.5 \cdot (\ell - 1) - 50, & \text{if failure at line } \ell
++100, & \text{if execution succeeds} \\
+\alpha(\ell - 1) - \beta, & \text{if failure occurs at line } \ell
 \end{cases}
 \]
 
-This preserves credit for valid prefixes and penalizes only the poisoned span. In practice, that makes the search loop behave more like a debugger than a language model.
+where:
+
+- \( \alpha \) rewards validated prefix depth,
+- \( \beta \) penalizes the failing region.
+
+This produces a much better training signal than flat binary rejection.
+
+**Why it matters:**  
+Rollback turns the sandbox into a granular critic, not a blunt hammer.
 
 ### 3. SGA: Surgical Gradient Attribution
 
-Once rollback identifies the failure boundary, Micro-CS scales gradients asymmetrically:
+If only the final lines of a generated program are wrong, then updating the model as though *every token were equally responsible* is wasteful and destabilizing.
 
-- safe prefix tokens are down-weighted,
-- failing-region tokens are amplified.
+`SGA` introduces **non-uniform gradient scaling** around the failure boundary discovered by rollback.
+
+Let \( i_{\text{fail}} \) denote the token index aligned with the failing code region. Then the effective gradient is modified as:
 
 \[
-g_i' =
+g'_i =
 \begin{cases}
 0.1 g_i, & i < i_{\text{fail}} \\
 10.0 g_i, & i \ge i_{\text{fail}}
 \end{cases}
 \]
 
-This reduces catastrophic forgetting in the already-correct prefix and accelerates correction where the actual defect was observed.
+This yields two effects:
+
+- **prefix preservation**: already-correct logic is not catastrophically overwritten,
+- **error amplification**: the defective region is corrected aggressively.
+
+In practical terms, SGA acts like a learned version of “do not rewrite the part that already works.”
+
+**Why it matters:**  
+SGA is not just optimization. It is *credit assignment under structural locality*.
 
 ### 4. ISFS: Incremental Symbol Flow Sentinel
 
-During generation, many candidate programs are provably invalid before execution because they reference symbols that do not exist in scope. ISFS maintains an incremental symbol table over partial code and masks undefined identifier tokens at the logit level.
+A large fraction of generated code fails for embarrassingly simple reasons: undefined variables, premature references, scope leaks, or impossible symbol flows.
 
-That means obvious `NameError` branches are often removed **before** they hit the sandbox.
+`ISFS` solves this before execution.
 
-### 5. MET: Metacognitive Entropy Throttling
+It incrementally tracks:
 
-Not every token deserves tree search.
+- `defined_symbols`
+- `accessed_symbols`
+- scope-sensitive symbol availability over partial code prefixes
 
-Micro-CS measures token-level entropy and only escalates to System 2 when uncertainty crosses a threshold. The new inertial tracker keeps the model inside System 2 for a configurable caution window after a trigger, preventing rapid oscillation between shallow and deep reasoning.
+Then, during token generation, it maps undefined references back into token space and applies a direct logit mask:
 
 \[
-H(p) = - \sum_i p_i \log p_i
+\text{logit}(t_{\text{invalid}}) \leftarrow -\infty
 \]
 
-If \(H(p) > \tau\), the engine engages explicit reasoning. If the trigger persists, a short System 2 inertia window maintains deliberate computation for subsequent tokens.
+That means invalid identifiers can be blocked *before* they are sampled.
 
-## Architecture
+This is a subtle but important shift. Instead of using execution to discover obvious scope errors, the engine applies **symbolic constraints at generation time**.
+
+**Why it matters:**  
+ISFS reduces wasted search width, lowers sandbox load, and converts compiler knowledge into real-time decoding bias.
+
+### 5. LOD-Compute: Level-of-Detail Precision Routing
+
+Borrowed conceptually from real-time graphics, `LOD-Compute` uses different precision tiers for different reasoning phases.
+
+- **Low-Fi mode**: ultra-cheap branch expansion in ternary / 1.58-bit-style routing
+- **High-Fi mode**: FP16/BF16 replay on the winning path for stable gradients
+
+This mirrors Level-of-Detail rendering in 3D engines:
+
+- distant objects get cheaper meshes,
+- critical foreground objects get full resolution.
+
+Here, the analogy becomes:
+
+- speculative branches get low precision,
+- verified branches get high precision.
+
+A simplified cost model:
+
+\[
+C_{\text{total}} =
+N_{\text{low}} \cdot C_{1.58\text{-bit}} +
+N_{\text{high}} \cdot C_{\text{FP16}}
+\]
+
+with:
+
+\[
+C_{1.58\text{-bit}} \ll C_{\text{FP16}}
+\]
+
+The entire point is not that low precision is “better.” It is that **broad search should be cheap**, and **accurate learning should be expensive only where justified**.
+
+**Why it matters:**  
+LOD-Compute converts precision from a static model property into a dynamic control variable.
+
+---
+
+## Architecture & Logic Flow
 
 ```mermaid
 flowchart TD
-    A["Prompt / Partial Code"] --> B["System 1 Forward Pass"]
+    A["Input Prompt / Partial Code"] --> B["System 1 Forward Pass"]
     B --> C{"MET Entropy Gate"}
-    C -->|Low Entropy| D["Direct Token Acceptance"]
-    C -->|High Entropy| E["System 2 Window"]
+    C -->|Low Entropy| D["Fast Path Token Acceptance"]
+    C -->|High Entropy| E["System 2 Reasoning Window"]
+
     E --> F["Low-Fi Proposal Generation"]
     F --> G["ISFS Symbol Sentinel"]
     G --> H["MCTS Branch Expansion"]
-    H --> I["Python Sandbox"]
-    I --> J["AST Rollback"]
+    H --> I["Python Sandbox Execution"]
+    I --> J["AST-Aware Rollback"]
+
     J --> K{"Verified?"}
     K -->|No| H
-    K -->|Yes| L["High-Fi Replay"]
-    L --> M["SGA Gradient Surgery"]
-    M --> N["Optimizer Step"]
+    K -->|Yes| L["High-Fi Replay (FP16/BF16)"]
+    L --> M["SGA: Surgical Gradient Attribution"]
+    M --> N["Optimizer Update / Memory Consolidation"]
 ```
 
-## Benchmark Snapshot
+---
 
-The current repository includes a reproducible `vault_stress_test` that exercises MET, MCTS, ISFS, AST rollback, and high-fi replay in one loop.
+## Reasoning Efficiency
 
-Illustrative RC smoke-run output:
+The relevant question is not just *accuracy*. It is **how much verified reasoning is achieved per unit compute**.
 
-| Benchmark | Dense High-Fi Baseline | Micro-CS RC |
+### Benchmark Philosophy
+
+`Novamind-CS` reports not only task success, but also:
+
+- **VRAM usage**
+- **high-fidelity token budget**
+- **Cognitive Compression Ratio**
+- **Reasoning Efficiency**
+
+### Core Metrics
+
+- **Cognitive Compression Ratio**  
+  Percentage of tokens handled by System 1 versus System 2.
+
+- **Reasoning Efficiency**  
+  A practical score of solved tasks over memory-cost and compute time.
+
+A generic form:
+
+\[
+\text{Reasoning Efficiency} =
+\frac{\text{Solved Tasks}}
+{\text{VRAM Usage} \times \text{Compute Time}}
+\]
+
+### Illustrative Comparison
+
+| Metric | Standard Transformer | Novamind-CS |
 |---|---:|---:|
-| High-fi token budget | 3909 | 1303 |
-| High-fi token efficiency gain | 1.00x | 3.00x |
-| AST poison localization | No | Yes |
-| Symbol-level pre-blocking | No | Yes |
-| Reasoning dashboard | Minimal | Full |
+| Context Memory Growth | High (KV-cache bound) | State-compressed, search-routed |
+| Consumer VRAM Suitability | Weak at long-context reasoning | Designed for 16 GB operation |
+| Symbolic Error Prevention | Post-hoc only | Pre-sampling via ISFS |
+| Credit Assignment | Mostly uniform | Rollback + SGA localized |
+| Deep Reasoning Trigger | Always dense or always shallow | Entropy-gated |
+| Precision Policy | Static | Dynamic LOD-Compute |
+| Cognitive Compression Ratio | Not explicit | Explicitly measured |
+| Verified Branch Replay | Rare | Built-in |
 
-Current benchmark dashboard also reports:
+### Illustrative RC Snapshot
 
-- **Cognitive Compression Ratio**: share of tokens handled by System 1 vs System 2
-- **VRAM Efficiency**: average VRAM used per successful deduction
-- **Reasoning Accuracy**: solved tasks divided by total attempts
+| Benchmark | Dense Baseline | Novamind-CS RC |
+|---|---:|---:|
+| High-Fi Token Budget | 3909 | 1303 |
+| High-Fi Efficiency Gain | 1.0x | 3.0x |
+| AST Fault Localization | No | Yes |
+| Logit-Level Symbol Blocking | No | Yes |
+| Deliberate Reasoning Gate | No | Yes |
 
-## Academic Vision
+The exact values are expected to evolve, but the pattern matters: `Novamind-CS` reduces expensive compute by narrowing high-fidelity replay to **verified and information-rich trajectories**.
 
-Micro-CS is motivated by the **dual-process theory** of cognition.
+---
 
-- **Fast process**: cheap pattern completion and default continuation
-- **Slow process**: explicit deliberation, branching, simulation, and correction
+## Why This Matters
 
-The project does not assume that language-only scaling is sufficient for robust reasoning under tight memory budgets. Instead, it studies whether a neuro-symbolic control loop can produce higher **information gain per watt** by reserving expensive computation for verified, uncertainty-driven branches.
+This project argues for a shift:
 
-## Repository Layout
+### From Scaling Laws to Efficiency Laws
 
-```text
-.
-├── core/
-│   ├── ast_rollback.py
-│   ├── code_mcts.py
-│   ├── device_manager.py
-│   ├── lod_router.py
-│   ├── mamba_backbone.py
-│   ├── met_controller.py
-│   └── symbol_sentinel.py
-├── data/
-│   └── synthetic_curriculum.py
-├── learning/
-├── memory/
-├── training/
-│   ├── bitlinear.py
-│   ├── gradient_surgery.py
-│   └── unified_offload.py
-├── inference.py
-├── main.py
-├── model.py
-├── test_novamind.py
-└── train.py
-```
+The old recipe was straightforward:
+
+- more parameters,
+- more data,
+- more GPUs,
+- more training time.
+
+That recipe still works, but it is not the only path to intelligence. It is merely the most brute-force path.
+
+`Novamind-CS` is part of a different research direction:
+
+> Intelligence should improve not only by increasing compute, but by **allocating compute more intelligently**.
+
+This is the transition from **scaling laws** to **efficiency laws**.
+
+### A Cross-Disciplinary Stack
+
+This project sits at the intersection of three traditions:
+
+- **Compiler Theory**  
+  ASTs, tracebacks, symbol tables, fault localization, structured rollback
+
+- **Information Theory**  
+  entropy gating, uncertainty-aware routing, efficient bit allocation
+
+- **Cognitive Psychology**  
+  dual-process reasoning, metacognitive escalation, deliberate correction under uncertainty
+
+That combination is deliberate. The goal is not merely to make models smaller. The goal is to make them **less wasteful and more self-aware**.
+
+---
 
 ## Getting Started
 
-### 1. Install
+### Install
 
 ```bash
 python3 -m venv .venv
@@ -188,19 +329,19 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Run the test suite
+### Run the Test Suite
 
 ```bash
 python3 test_novamind.py
 ```
 
-### 3. Launch the showcase dashboard
+### Launch the Showcase Dashboard
 
 ```bash
 python3 main.py --mode showcase
 ```
 
-### 4. Run the reasoning stress test
+### Run the `vault_stress_test`
 
 ```bash
 python3 train.py \
@@ -214,24 +355,72 @@ python3 train.py \
   --met_caution_window 5
 ```
 
-### 5. Run code reasoning inference
+This benchmark exercises the full stack:
+
+- MET gating
+- low-fi MCTS exploration
+- ISFS symbol blocking
+- AST-aware rollback
+- high-fi replay
+- SGA update logic
+- final reasoning efficiency dashboard
+
+### Run Code-Oriented Reasoning
 
 ```bash
 python3 inference.py \
-  --prompt "Write a Python function is_even(n) that returns True when n is even." \
+  --prompt "Write a Python function is_even(n) that returns True if n is even." \
   --mcts_code
 ```
 
-## Design Notes
+---
 
-- **Cross-platform routing** is built in. CUDA systems use the fast path when available; macOS and CPU use stable fallbacks for development.
-- **BitLinear** falls back safely on non-CUDA systems to avoid MPS instability.
-- **Unified offload** is a no-op on non-high-performance tiers, keeping the same codepath without triggering unsupported CUDA behavior.
+## Project Status
 
-## Status
+`Novamind-CS` is currently positioned as a **v1.0 Release Candidate** and research demo. It is intended as:
 
-Micro-CS v1.0 RC currently passes the repository test suite and exposes a public stress-test path intended for open benchmarking and further research iteration.
+- a public benchmark scaffold,
+- an academic portfolio artifact,
+- and a serious prototype for neuro-symbolic efficiency on constrained hardware.
+
+It is not yet a claim of final-state AGI infrastructure. It is a claim that **reasoning architecture should be judged by efficiency, locality, and verification quality**, not parameter count alone.
+
+---
+
+## Future Roadmap
+
+### Near-Term
+
+- token-level MET state caching with richer temporal priors
+- more precise BPE-aware symbol masking via tokenizer tries
+- stronger dense baselines for controlled head-to-head benchmarking
+- better CUDA kernels for ternary low-fi branch expansion
+
+### Mid-Term
+
+- multi-modal symbolic sentinels for code + diagram + structured text reasoning
+- cross-file AST rollback for repository-scale coding tasks
+- neuro-symbolic memory routing across long-horizon sessions
+- reinforcement schedules tied to rollback depth and symbolic novelty
+
+### Long-Term
+
+- formal proof-assisted reasoning loops
+- differentiable compiler feedback for structured program synthesis
+- hybrid symbolic world models beyond code, including spatial and embodied tasks
+
+---
+
+## Closing Note
+
+`Novamind-CS` is built on a simple but increasingly urgent belief:
+
+> The next leap in AI will not come solely from bigger models. It will come from systems that know when to think harder, where to spend precision, and how to learn only from the part that truly failed.
+
+That is the wager behind surgical reasoning on consumer silicon.
+
+---
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT License.
