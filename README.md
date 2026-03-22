@@ -3,7 +3,7 @@
 
 # NovaMind
 
-**v1.1: The Sniper and The Heavyweight.**
+**v1.2: The Hardcore Curriculum.**
 
 **Surgical Reasoning on Consumer Silicon.**  
 *Breaking the memory wall with metacognitive gating, causal modulation, and surgical gradients.*
@@ -30,6 +30,12 @@ Most LLM architecture assumes datacenters. NovaMind assumes a single RTX 4090, 3
 This is not a lightly patched Transformer. It is a ground-up attempt to answer a more practical question:
 
 **What does a reasoning-first model look like when memory is finite and every compute cycle matters?**
+
+The current release track is centered on a dual-engine workflow:
+
+- **The Sniper**: a compact reasoning specialist trained on execution-verified Python tasks
+- **The Heavyweight**: a 7B LoRA adaptation path for larger base models
+- **The Hardcore Curriculum**: a nightmare-grade dataset upgrade covering Tarjan SCC, bitmask DP, tree DP, trie logic, segment-style query workloads, N-Queens, and hard maze pathfinding
 
 ---
 
@@ -294,6 +300,12 @@ The locked 16 GB recipes are:
 - `pretrain_tiny`: `batch_size=1`, `grad_accum_steps=8`, `max_seq_len=512`
 - `finetune_lora_7b`: `batch_size=1`, `grad_accum_steps=16`, `max_seq_len=384`, `bf16`, `LoRA rank=64`, `LoRA alpha=128`
 
+To generate the full nightmare curriculum directly:
+
+```bash
+python3 data/sniper_dataset_gen.py --output data/sniper_train.jsonl --samples 10000
+```
+
 ### Build a model
 
 ```python
@@ -389,6 +401,8 @@ What you should see:
 - final reasoning-efficiency summary
 
 If you want a more guided walkthrough, see [Docs/QuickStart.md](/Users/felix/Desktop/Novamind/Docs/QuickStart.md).
+
+For the `v1.2` curriculum-hardening release notes, see [Release_v1.2.md](/Users/felix/Desktop/Novamind/Release_v1.2.md).
 
 ---
 
