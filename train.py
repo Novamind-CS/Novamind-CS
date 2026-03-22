@@ -36,6 +36,8 @@ import argparse
 import json
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -54,9 +56,36 @@ except Exception:
     deepspeed = None
 
 
-def build_training_config(config_cls, size: str):
+def build_training_config(config_cls, size: str, run_mode: str = "legacy"):
     if size != "tiny":
         return config_cls.from_size(size)
+
+    if run_mode == "pretrain_tiny":
+        return config_cls(
+            vocab_size=32000,
+            hidden_dim=768,
+            num_layers=12,
+            max_seq_len=1024,
+            num_ssm_heads=8,
+            num_attn_heads=4,
+            head_dim=64,
+            attention_window=96,
+            ssm_state_dim=32,
+            ssm_conv_kernel=4,
+            ssm_expand=2,
+            xlstm_matrix_dim=128,
+            xlstm_num_heads=4,
+            titans_memory_layers=2,
+            titans_summary_slots=16,
+            causal_graph_dim=24,
+            logic_entity_dim=64,
+            wsra_world_slots=8,
+            wsra_jit_rank=16,
+            wsra_frustum_tokens=64,
+            wsra_proof_branches=4,
+            lora_rank=8,
+            lora_alpha=16,
+        )
 
     return config_cls(
         vocab_size=512,
@@ -83,6 +112,56 @@ def build_training_config(config_cls, size: str):
         lora_rank=8,
         lora_alpha=16,
     )
+
+
+def count_model_parameters(model: nn.Module, trainable_only: bool = False) -> int:
+    if hasattr(model, "num_parameters"):
+        return int(model.num_parameters(trainable_only=trainable_only))
+    params = (
+        p for p in model.parameters()
+        if (p.requires_grad or not trainable_only)
+    )
+    return int(sum(p.numel() for p in params))
+
+
+class CausalLMAdapter(nn.Module):
+    """Normalize HuggingFace causal LMs to the NovaMind training interface."""
+
+    def __init__(self, hf_model: nn.Module):
+        super().__init__()
+        self.hf_model = hf_model
+        self.config = getattr(hf_model, "config", None)
+
+    def forward(self,
+                input_ids: torch.Tensor,
+                labels: torch.Tensor | None = None,
+                inference_mode: bool = False,
+                return_logic_loss: bool = False,
+                **kwargs):
+        outputs = self.hf_model(
+            input_ids=input_ids,
+            labels=labels,
+            use_cache=not inference_mode,
+            output_hidden_states=True,
+            return_dict=True,
+        )
+        hidden_states = None
+        if getattr(outputs, "hidden_states", None):
+            hidden_states = outputs.hidden_states[-1]
+        return {
+            "logits": outputs.logits,
+            "hidden_states": hidden_states,
+            "loss": outputs.loss,
+            "logic_loss": None,
+            "xlstm_states": None,
+            "layer_states": None,
+            "titans_fifos": None,
+            "wsra": None,
+            "wsra_state": None,
+        }
+
+    def num_parameters(self, trainable_only: bool = False) -> int:
+        return count_model_parameters(self.hf_model, trainable_only=trainable_only)
 
 
 
@@ -144,11 +223,14 @@ class TextDataset(Dataset):
         if isinstance(sample, dict):
             prompt = sample.get("prompt", "")
             rationale = sample.get("rationale", "")
-            answer = sample.get("answer", sample.get("text", sample.get("content", "")))
+            answer = sample.get(
+                "answer",
+                sample.get("solution", sample.get("reference_code", sample.get("text", sample.get("content", ""))))
+            )
             reward = float(sample.get("reward", 1.0))
             tests = sample.get("tests", "")
             if prompt or rationale:
-                text = f"User: {prompt}\nReasoning: {rationale}\nAssistant: {answer}"
+                text = f"User: {prompt}\nReasoning: {rationale}\nAssistant:\n```python\n{answer}\n```"
             else:
                 text = answer
         else:
@@ -161,6 +243,59 @@ class TextDataset(Dataset):
             "reward": torch.tensor(reward, dtype=torch.float32),
             "prompt": prompt,
             "tests": tests,
+            "reference_code": sample.get("solution", sample.get("reference_code", "")) if isinstance(sample, dict) else "",
+        }
+
+
+class SniperDataset(Dataset):
+    def __init__(self, data_path: str, tokenizer, max_length: int = 2048):
+        self.max_length = max_length
+        self.tokenizer = tokenizer
+        self.samples = []
+
+        path = Path(data_path)
+        assert path.exists(), f"Sniper dataset does not exist: {data_path}"
+
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                sample = json.loads(line)
+                if sample.get("prompt") and sample.get("solution") and sample.get("tests"):
+                    self.samples.append(sample)
+
+        print(f"[SniperDataset] Loaded {len(self.samples)} records from {data_path}")
+
+    def __len__(self):
+        return len(self.samples)
+
+    def _tokenize(self, text: str):
+        tokens = self.tokenizer(
+            text,
+            max_length=self.max_length,
+            truncation=True,
+            padding="max_length",
+            return_tensors="pt",
+        )
+        input_ids = tokens["input_ids"].squeeze(0) if isinstance(tokens, dict) else tokens.input_ids.squeeze(0)
+        return input_ids
+
+    def __getitem__(self, idx):
+        sample = self.samples[idx]
+        training_text = (
+            f"User: {sample['prompt']}\n"
+            f"Assistant:\n```python\n{sample['solution']}\n```"
+        )
+        input_ids = self._tokenize(training_text)
+        return {
+            "input_ids": input_ids,
+            "labels": input_ids.clone(),
+            "reward": torch.tensor(1.0, dtype=torch.float32),
+            "prompt": sample["prompt"],
+            "tests": sample["tests"],
+            "reference_code": sample["solution"],
+            "task_type": sample.get("task_type", "sniper"),
         }
 
 
@@ -668,20 +803,41 @@ class NovaMindTrainer:
     def _compute_reasoning_rewards(self, batch: dict):
         prompts = self._extract_text_list(batch.get("prompt"))
         tests_blob = self._extract_text_list(batch.get("tests"))
+        reference_codes = self._extract_text_list(batch.get("reference_code"))
 
         if not prompts or not tests_blob:
             return None
 
-        reasoner = self._ensure_reasoner()
+        if self.high_fi_callback is None:
+            self._ensure_reasoner()
+
         rewards = []
         penalties = []
 
         was_training = self.model.training
         self.model.eval()
         try:
-            for prompt, tests_text in zip(prompts, tests_blob):
+            for idx, (prompt, tests_text) in enumerate(zip(prompts, tests_blob)):
                 tests = self._parse_tests_blob(tests_text)
                 met_decision = self._inspect_met_prompt(prompt) if self.args.use_met else None
+                reference_code = ""
+                if reference_codes and idx < len(reference_codes):
+                    reference_code = reference_codes[idx] or ""
+
+                if reference_code:
+                    from novamind.core.code_mcts import CodeMCTSReasoner, PythonSandbox
+
+                    proposal_fn = self._make_curriculum_proposal_fn(prompt, reference_code)
+                    reasoner = CodeMCTSReasoner(
+                        proposal_fn=proposal_fn,
+                        sandbox=PythonSandbox(timeout_s=self.args.sandbox_timeout),
+                        high_fi_backprop_fn=self.high_fi_callback,
+                        num_options=self.args.mcts_options,
+                        max_rollouts=self.args.mcts_rollouts,
+                    )
+                else:
+                    reasoner = self._ensure_reasoner()
+
                 result = reasoner.run(prompt, tests=tests)
                 rewards.append(result["reward"])
                 penalty = 0.0
@@ -804,11 +960,12 @@ class NovaMindTrainer:
         print(f"\n{'='*60}")
         print("NovaMind training started")
         print(f"  Device: {self.args.device}")
+        print(f"  Run mode: {self.args.run_mode}")
         print(f"  Max steps: {self.args.max_steps}")
         print(f"  Batch size: {self.args.batch_size} × grad accumulation: {self.args.grad_accum_steps}")
         print(f"  Effective batch size: {self.args.batch_size * self.args.grad_accum_steps}")
-        print(f"  Model size: {self.model.num_parameters()/1e9:.2f}B total, "
-              f"{self.model.num_parameters(trainable_only=True)/1e6:.1f}M trainable")
+        print(f"  Model size: {count_model_parameters(self.model)/1e9:.2f}B total, "
+              f"{count_model_parameters(self.model, trainable_only=True)/1e6:.1f}M trainable")
         print(f"{'='*60}\n")
 
         self._ensure_reasoner()
@@ -875,17 +1032,24 @@ class NovaMindTrainer:
                     return
 
 
-
-
-
-
 def main():
     parser = argparse.ArgumentParser(description="NovaMind training")
+    parser.add_argument(
+        "--run_mode",
+        choices=["legacy", "pretrain_tiny", "finetune_lora_7b"],
+        default="legacy",
+        help="Training path: keep legacy behavior, pretrain a tiny sniper model, or fine-tune a 7B HF model with LoRA.",
+    )
     parser.add_argument("--size", choices=["tiny", "3b", "7b", "14b"], default="tiny")
     parser.add_argument("--data", type=str, default="", help="Path to the training data")
     parser.add_argument("--output", type=str, default="./checkpoints")
     parser.add_argument("--tokenizer", type=str, default="",
                         help="Path or identifier for the HuggingFace tokenizer")
+    parser.add_argument("--hf_model_name", type=str, default="meta-llama/Llama-2-7b-hf")
+    parser.add_argument("--load_in_8bit", action="store_true", default=False)
+    parser.add_argument("--generate_sniper_data", action="store_true", default=False)
+    parser.add_argument("--sniper_samples", type=int, default=10000)
+    parser.add_argument("--sniper_seed", type=int, default=42)
     parser.add_argument("--synthetic_curriculum", action="store_true", default=False)
     parser.add_argument("--vault_stress_test", action="store_true", default=False)
     parser.add_argument("--vault_tasks", type=int, default=50)
@@ -960,91 +1124,194 @@ def main():
     args.device = get_device()
     runtime_dtype = get_dtype(detected_tier)
 
-    if not args.data and not args.synthetic_curriculum and not args.vault_stress_test:
+    if args.run_mode == "pretrain_tiny":
+        args.size = "tiny"
+        args.use_met = True
+        args.use_rl_objective = True
+        args.rl_weight = max(args.rl_weight, 0.2)
+        args.mcts_options = max(args.mcts_options, 4)
+        args.mcts_rollouts = max(args.mcts_rollouts, 6)
+        args.synthetic_curriculum = False
+    elif args.run_mode == "finetune_lora_7b":
+        args.size = "7b"
+        args.use_met = True
+        args.tokenizer = args.tokenizer or args.hf_model_name
+
+    if (
+        args.run_mode == "legacy"
+        and not args.data
+        and not args.synthetic_curriculum
+        and not args.vault_stress_test
+    ):
         args.synthetic_curriculum = True
         print("[Training] No --data provided, switching to the synthetic sanity curriculum")
 
-    if (args.synthetic_curriculum or args.vault_stress_test) and detected_tier == HardwareTier.MAC_DEBUG:
+    if (
+        args.synthetic_curriculum
+        or args.vault_stress_test
+        or args.run_mode == "pretrain_tiny"
+    ) and detected_tier == HardwareTier.MAC_DEBUG:
         args.device = torch.device("cpu")
         runtime_dtype = torch.float32
         print("[Training] MAC_DEBUG reasoning mode forces CPU execution to avoid MPS kernel crashes")
 
-    if (args.synthetic_curriculum or args.vault_stress_test) and detected_tier == HardwareTier.MAC_DEBUG:
+    if (
+        args.synthetic_curriculum
+        or args.vault_stress_test
+        or args.run_mode == "pretrain_tiny"
+    ) and detected_tier == HardwareTier.MAC_DEBUG:
         print(f"[Hardware] tier=MAC_DEBUG device=cpu dtype={runtime_dtype}")
     else:
         print(get_hardware_banner(args.device))
 
-
-    if (args.synthetic_curriculum or args.vault_stress_test) and not is_high_perf_mode() and args.size != "tiny":
+    if (
+        (args.synthetic_curriculum or args.vault_stress_test or args.run_mode == "pretrain_tiny")
+        and not is_high_perf_mode()
+        and args.size != "tiny"
+    ):
         print("[Training] Non-CUDA reasoning environments automatically fall back to the tiny config")
         args.size = "tiny"
 
-    cfg = build_training_config(NovaMindConfig, args.size)
-    if args.width_multiplier > 1.0:
-        cfg = cfg.with_width_multiplier(args.width_multiplier)
-    cfg.max_seq_len = args.max_seq_len
-    cfg.use_activation_checkpointing = not args.no_activation_checkpointing
-    cfg.offload_activations = not args.no_cpu_offload
-    cfg.use_unified_offload = args.use_unified_offload
-    cfg.lora_rank = args.lora_rank
-    cfg.lora_alpha = args.lora_alpha
-    cfg.wsc_reset_freq = args.wsc_reset_freq
+    cfg: Any = None
+    teacher_model = None
 
+    def _load_tokenizer(tokenizer_name: str):
+        try:
+            if tokenizer_name:
+                from transformers import AutoTokenizer
 
-    num_params = {
-        "tiny": 2_000_000,
-        "3b": 3_000_000_000,
-        "7b": 7_000_000_000,
-        "14b": 14_000_000_000,
-    }[args.size]
-    vram_est = estimate_vram(
-        num_params=num_params,
-        hidden_dim=cfg.hidden_dim,
-        num_layers=cfg.num_layers,
-        use_activation_checkpointing=cfg.use_activation_checkpointing
-    )
-    print(f"\n[VRAM Estimate] {args.size.upper()} model:")
-    for k, v in vram_est.items():
-        flag = "✓" if k == "fits_16gb" else "  "
-        print(f"  {flag} {k}: {v}")
-    print()
+                tok = AutoTokenizer.from_pretrained(tokenizer_name)
+                if tok.pad_token is None:
+                    tok.pad_token = tok.eos_token
+                return tok
+        except Exception as exc:
+            print(f"[Tokenizer] Failed to load '{tokenizer_name}': {exc}")
 
+        print("[Training] Using the character-level tokenizer for a local sanity check")
+        from inference import CharTokenizer
+        return CharTokenizer()
 
-    print(f"[Model] Initializing NovaMind-{args.size.upper()}...")
-    model = NovaMind(cfg)
+    def _configure_novamind_model():
+        local_cfg = build_training_config(NovaMindConfig, args.size, args.run_mode)
+        if args.width_multiplier > 1.0:
+            local_cfg = local_cfg.with_width_multiplier(args.width_multiplier)
+        local_cfg.max_seq_len = args.max_seq_len
+        local_cfg.use_activation_checkpointing = not args.no_activation_checkpointing
+        local_cfg.offload_activations = not args.no_cpu_offload
+        local_cfg.use_unified_offload = args.use_unified_offload
+        local_cfg.lora_rank = args.lora_rank
+        local_cfg.lora_alpha = args.lora_alpha
+        local_cfg.wsc_reset_freq = args.wsc_reset_freq
 
-    if args.use_qat:
-        from novamind.training.quantization import estimate_qat_vram, preserve_sensitive_precision
-        from novamind.training.bitlinear import replace_with_bitlinear
-
-        preserve_sensitive_precision(model)
-        if is_high_perf_mode():
-            model, replaced = replace_with_bitlinear(model)
-            print(f"[QAT] Replaced {replaced} linear layers with BitLinear 1.58-bit QAT modules")
-        else:
-            print("[QAT] Non-CUDA tier detected, skipping BitLinear replacement.")
-        qat_est = estimate_qat_vram(num_params=num_params)
-        print(f"[QAT] Training VRAM estimate: {qat_est}")
-
-    if not args.use_qat:
-
-        model = inject_lora(
-            model,
-            target_modules=cfg.lora_target_modules,
-            rank=cfg.lora_rank,
-            alpha=cfg.lora_alpha
+        num_params = {
+            "tiny": 120_000_000 if args.run_mode == "pretrain_tiny" else 2_000_000,
+            "3b": 3_000_000_000,
+            "7b": 7_000_000_000,
+            "14b": 14_000_000_000,
+        }[args.size]
+        vram_est = estimate_vram(
+            num_params=num_params,
+            hidden_dim=local_cfg.hidden_dim,
+            num_layers=local_cfg.num_layers,
+            use_activation_checkpointing=local_cfg.use_activation_checkpointing,
         )
-        model = freeze_base_model(model)
+        print(f"\n[VRAM Estimate] {args.size.upper()} model:")
+        for key, value in vram_est.items():
+            flag = "✓" if key == "fits_16gb" else "  "
+            print(f"  {flag} {key}: {value}")
+        print()
 
+        print(f"[Model] Initializing NovaMind-{args.size.upper()}...")
+        local_model = NovaMind(local_cfg)
+        if args.use_qat:
+            from novamind.training.quantization import estimate_qat_vram, preserve_sensitive_precision
+            from novamind.training.bitlinear import replace_with_bitlinear
 
-    if cfg.use_activation_checkpointing:
-        from torch.utils.checkpoint import checkpoint_sequential
+            preserve_sensitive_precision(local_model)
+            if is_high_perf_mode():
+                local_model, replaced = replace_with_bitlinear(local_model)
+                print(f"[QAT] Replaced {replaced} linear layers with BitLinear 1.58-bit QAT modules")
+            else:
+                print("[QAT] Non-CUDA tier detected, skipping BitLinear replacement.")
+            qat_est = estimate_qat_vram(num_params=num_params)
+            print(f"[QAT] Training VRAM estimate: {qat_est}")
+
+        if not args.use_qat and args.run_mode != "pretrain_tiny":
+            local_model = inject_lora(
+                local_model,
+                target_modules=local_cfg.lora_target_modules,
+                rank=local_cfg.lora_rank,
+                alpha=local_cfg.lora_alpha,
+            )
+            local_model = freeze_base_model(local_model)
+
+        local_model = local_model.to(args.device)
+        local_model = local_model.to(runtime_dtype)
+        return local_model, local_cfg, num_params
+
+    def _configure_hf_7b_model():
+        try:
+            from transformers import AutoModelForCausalLM
+        except Exception as exc:
+            raise RuntimeError(
+                "finetune_lora_7b requires transformers with AutoModelForCausalLM available"
+            ) from exc
+
+        print(f"[Model] Loading HF base model: {args.hf_model_name}")
+        load_kwargs = {
+            "torch_dtype": runtime_dtype,
+            "low_cpu_mem_usage": True,
+        }
+        if args.load_in_8bit:
+            load_kwargs["load_in_8bit"] = True
+        hf_model = AutoModelForCausalLM.from_pretrained(args.hf_model_name, **load_kwargs)
+        if not args.load_in_8bit:
+            hf_model = hf_model.to(args.device)
+
+        local_model = CausalLMAdapter(hf_model)
+        local_model = inject_lora(
+            local_model,
+            target_modules=["q_proj", "v_proj"],
+            rank=args.lora_rank,
+            alpha=args.lora_alpha,
+        )
+        local_model = freeze_base_model(local_model)
+
+        if args.use_qat:
+            from novamind.training.bitlinear import replace_with_bitlinear
+
+            if is_high_perf_mode():
+                local_model, replaced = replace_with_bitlinear(
+                    local_model,
+                    target_keywords=("gate_proj", "up_proj", "down_proj", "k_proj", "o_proj"),
+                )
+                print(f"[QAT] Replaced {replaced} non-LoRA linear layers with BitLinear modules")
+            else:
+                print("[QAT] Non-CUDA tier detected, skipping BitLinear replacement.")
+
+        local_cfg = SimpleNamespace(
+            hidden_dim=getattr(hf_model.config, "hidden_size", 4096),
+            num_layers=getattr(hf_model.config, "num_hidden_layers", 32),
+            use_activation_checkpointing=not args.no_activation_checkpointing,
+            offload_activations=not args.no_cpu_offload,
+            use_unified_offload=args.use_unified_offload,
+            unified_offload_device="cpu",
+            lora_rank=args.lora_rank,
+            lora_alpha=args.lora_alpha,
+            lora_target_modules=["q_proj", "v_proj"],
+            wsc_reset_freq=args.wsc_reset_freq,
+            wsc_ema_decay=0.999,
+        )
+        return local_model, local_cfg, 7_000_000_000
+
+    if args.run_mode == "finetune_lora_7b":
+        model, cfg, num_params = _configure_hf_7b_model()
+    else:
+        model, cfg, num_params = _configure_novamind_model()
+
+    if getattr(cfg, "use_activation_checkpointing", False):
         print("[VRAM] Gradient checkpointing enabled")
 
-    model = model.to(args.device)
-    model = model.to(runtime_dtype)
-
-    teacher_model = None
     if args.teacher_checkpoint:
         teacher_size = args.teacher_size or args.size
         teacher_cfg = NovaMindConfig.from_size(teacher_size)
@@ -1085,22 +1352,21 @@ def main():
         zero_memory_manager.register_offload_hooks(model, base_opt)
         print("[ZeRO] Unified offload hooks registered")
 
+    tokenizer = _load_tokenizer(args.tokenizer)
 
-    try:
-        if args.tokenizer:
-            from transformers import AutoTokenizer
-            tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
-            if tokenizer.pad_token is None:
-                tokenizer.pad_token = tokenizer.eos_token
-        else:
-            raise RuntimeError("No tokenizer configured")
-    except Exception:
-        print("[Training] Using the character-level tokenizer for a local sanity check")
-        from inference import CharTokenizer
-        tokenizer = CharTokenizer()
+    if args.run_mode == "pretrain_tiny":
+        data_path = args.data or "data/sniper_train.jsonl"
+        if args.generate_sniper_data or not Path(data_path).exists():
+            from data.sniper_dataset_gen import write_sniper_dataset
+
+            write_sniper_dataset(data_path, samples=args.sniper_samples, seed=args.sniper_seed)
+            print(f"[SniperData] Generated dataset at {data_path}")
+        args.data = data_path
 
     if args.vault_stress_test:
         dataset = None
+    elif args.run_mode == "pretrain_tiny":
+        dataset = SniperDataset(args.data, tokenizer, max_length=args.max_seq_len)
     elif args.synthetic_curriculum:
         dataset = SyntheticCurriculumDataset(tokenizer, max_length=args.max_seq_len)
     elif tokenizer is not None and args.data:

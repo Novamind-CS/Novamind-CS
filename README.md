@@ -3,6 +3,8 @@
 
 # NovaMind
 
+**v1.1: The Sniper and The Heavyweight.**
+
 **Surgical Reasoning on Consumer Silicon.**  
 *Breaking the memory wall with metacognitive gating, causal modulation, and surgical gradients.*
 
@@ -273,6 +275,25 @@ Or use the setup helper:
 
 ## Quick Start
 
+### One-click 16GB launch
+
+For the paper-launch workflow on an RTX 5070 Ti class 16 GB GPU:
+
+```bash
+./launch_novamind.sh
+```
+
+That script will:
+
+- generate `data/sniper_train.jsonl`
+- run `pretrain_tiny` with a 16 GB-safe recipe
+- optionally continue into `finetune_lora_7b`
+
+The locked 16 GB recipes are:
+
+- `pretrain_tiny`: `batch_size=1`, `grad_accum_steps=8`, `max_seq_len=512`
+- `finetune_lora_7b`: `batch_size=1`, `grad_accum_steps=16`, `max_seq_len=384`, `bf16`, `LoRA rank=64`, `LoRA alpha=128`
+
 ### Build a model
 
 ```python
@@ -288,17 +309,36 @@ print(model.num_parameters() / 1e9)
 ### Fine-tune on 16 GB
 
 ```bash
-python train.py \
-    --size 7b \
-    --data ./data/train.jsonl \
-    --output ./checkpoints \
+python3 train.py \
+    --run_mode finetune_lora_7b \
+    --hf_model_name meta-llama/Llama-2-7b-hf \
     --tokenizer meta-llama/Llama-2-7b-hf \
+    --data ./data/sniper_train.jsonl \
+    --output ./checkpoints/finetune_lora_7b \
     --batch_size 1 \
     --grad_accum_steps 16 \
+    --max_seq_len 384 \
     --lora_rank 64 \
     --lora_alpha 128 \
-    --use_wsc \
-    --bf16
+    --bf16 \
+    --use_qat \
+    --use_unified_offload \
+    --use_met
+```
+
+### Tiny pre-train on 16 GB
+
+```bash
+python3 train.py \
+    --run_mode pretrain_tiny \
+    --data ./data/sniper_train.jsonl \
+    --output ./checkpoints/pretrain_tiny \
+    --batch_size 1 \
+    --grad_accum_steps 8 \
+    --max_seq_len 512 \
+    --bf16 \
+    --use_met \
+    --use_rl_objective
 ```
 
 ### Run inference

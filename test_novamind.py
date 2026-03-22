@@ -545,6 +545,18 @@ except Exception as e:
     traceback.print_exc()
 
 
+try:
+    from data.sniper_dataset_gen import generate_sniper_records
+
+    records = generate_sniper_records(samples=8, seed=7)
+    assert len(records) == 8
+    assert all("prompt" in row and "solution" in row and "tests" in row for row in records)
+    results["Sniper Dataset Generator"] = "✓"
+except Exception as e:
+    results["Sniper Dataset Generator"] = f"✗ {e}"
+    traceback.print_exc()
+
+
 
 print("\n" + "="*50)
 print("NovaMind Test Results")
